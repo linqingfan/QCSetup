@@ -51,6 +51,15 @@ Wait for the console to show listening to port 5678 <br />
 set break point (if you want to debug) and click Attach to python <br />
 There will be no graphical output, it will show the sharpe and statistics
 
+## Switching off prelaunch build
+If there is no code change in Quantconnect system file, you may want to turn off rebuilding each time you launch. <br />
+This can be turn off by commenting out the file in .vscode/launch,json:
+
+```
+//"preLaunchTask": "build",
+```
+If there is any changes to the system files, you can just recompile as per  [a link](## Compile Quantconnect)
+
 ## Quantbook Research
 open a git bash terminal and execute the quantbook jupyter notebook:
 ```
