@@ -3,6 +3,7 @@ This is instruction to setup Quantconnect to run locally on windows without usin
 Assume you have some knowledge using vscode 
 
 ## Install latest dotnet framework
+https://dotnet.microsoft.com/en-us/download/dotnet/9.0
 
 ## debugpy bugs fixed (non docker)
 First download QuantConnect Lean using tool such as Github Desktop
