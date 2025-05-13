@@ -2,7 +2,7 @@
 This is instruction to setup Quantconnect to run locally on windows without using docker <br />
 Assume you have some knowledge using vscode 
 
-## Install latest dotnet framework
+## Install latest dotnet
 https://dotnet.microsoft.com/en-us/download/dotnet/9.0
 
 ## debugpy bugs fixed (non docker)
