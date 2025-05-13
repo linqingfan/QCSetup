@@ -1,4 +1,4 @@
-# QCSetup
+# QuantConnect Local Lean Setup
 This is instruction to setup Quantconnect to run locally on windows without using docker <br />
 Assume you have some knowledge using vscode 
 
