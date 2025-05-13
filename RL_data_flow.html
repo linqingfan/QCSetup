@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Historical Window Collection, Batching, & Training Epochs Illustration</title>
+<style>
+    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
+    .container { background-color: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    h1, h2, h3, h4 { color: #333; }
+    table { border-collapse: collapse; margin-bottom: 15px; width: auto; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: center; font-size: 0.9em; }
+    th { background-color: #f0f0f0; font-weight: bold; }
+    .highlight-window { background-color: #d4edda !important; }
+    .highlight-current-t { background-color: #f8d7da !important; border: 2px solid #dc3545 !important; font-weight: bold; }
+    .collected-obs { border: 1px solid #bee5eb; padding: 10px; margin: 5px; border-radius: 4px; background-color: #e9f7f9; display: inline-block; vertical-align: top; width: auto; }
+    .batch-item { border: 1px solid #ffeeba; padding: 10px; margin: 5px 0; border-radius: 4px; background-color: #fff9e6; }
+    .batch-item table tr { background-color: #d4edda !important; }
+    .code { font-family: monospace; background-color: #e9ecef; padding: 2px 4px; border-radius: 3px; color: #495057; }
+    .param-input { margin-right: 10px; padding: 5px; border: 1px solid #ced4da; border-radius: 4px; }
+    .controls button { margin-right: 10px; padding: 8px 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
+    .controls button:hover { background-color: #0056b3; }
+    .epoch-container { border: 1px solid #007bff; margin-top: 10px; padding: 10px; border-radius: 5px; background-color: #f0f8ff; }
+    .epoch-title { font-weight: bold; color: #0056b3; margin-bottom: 5px; font-size: 1.1em; }
+    #batchedWindowsContainer h4 { background-color: #e2e3e5; padding: 5px; border-radius: 3px; margin-top: 0; font-size: 0.95em; }
+    .important-note { background-color: #fff3cd; border-left: 5px solid #ffeeba; padding: 10px; margin: 10px 0; }
+    .derivation { margin-top: 5px; padding-left: 15px; }
+</style>
+</head>
+<body>
+
+    <h1>Illustrating Historical Window Collection, Batching, and Training Epochs</h1>
+
+    <div class="container controls">
+        <label for="seqLenInput" class="param-input">Observation Window <code class="code">sequence_length</code>:</label>
+        <input type="number" id="seqLenInput" value="5" min="1" max="10" class="param-input">
+
+        <label for="referenceTimeInput" class="param-input">Reference Time (t) for Collection End:</label>
+        <input type="number" id="referenceTimeInput" value="9" min="1" max="20" class="param-input">
+
+        <label for="nStepsHistInput" class="param-input">N Historical Windows to Collect (<code class="code">n_steps_historical</code>):</label>
+        <input type="number" id="nStepsHistInput" value="5" min="1" max="10" class="param-input">
+
+        <label for="nEpochsInput" class="param-input">N Epochs (for Training Sim):</label>
+        <input type="number" id="nEpochsInput" value="2" min="1" max="5" class="param-input">
+    </div>
+    <div class="container controls">
+        <button id="visualizeButton">Visualize Window ending at Reference Time (t)</button>
+        <button id="nextTimeButton">Next Reference Time (t+1) for Viz</button>
+    </div>
+
+
+    <div class="container">
+        <h2>1. Raw Time Series Data (OHLC)</h2>
+        <p>Each row is a time step (1-indexed). <code id="featuresPerStepDisplay"></code></p>
+        <div id="rawDataTableContainer"></div>
+    </div>
+
+    <div class="container">
+        <h2>2. Single Extracted Observation Window (ending at Reference Time <code id="displayReferenceTime">t=X</code>)</h2>
+        <p>Using <code id="displaySeqLen">sequence_length = Y</code>. This table shows actual time steps.</p>
+        <p>Shape of this single observation: <code id="obsShapeDisplay">(sequence_length, features_per_step)</code></p>
+        <div id="observationWindowContainer"></div>
+    </div>
+
+    <div class="container">
+        <h2>3. Data Collection: <code id="nStepsToCollectDisplay">N</code> Recent Historical Windows</h2>
+        <p>Collects <code id="nStepsHistDisplayVal">N</code> historical observation windows. The most recent window collected ends at the "Reference Time (t)" set above. Each subsequent window collected ends one time step earlier. Tables show actual time steps.</p>
+        <button id="collectButton">Collect <span id="collectButtonNSteps">5</span> Historical Windows</button>
+        <div id="collectedWindowsContainer" style="display: flex; flex-wrap: wrap; justify-content: space-around;"></div>
+    </div>
+
+    <div class="container">
+        <h2>4. Conceptual Training with Mini-Batches over <code id="displayNEpochs">N Epochs</code></h2>
+        <p>Using <code id="displayBatchSize">batch_size = 2</code>. The model iterates over the <i>collected historical windows</i> multiple times (epochs). In each epoch, the order of collected windows is shuffled before forming mini-batches. Tables show actual time steps.</p>
+        <p>Input shape to Model for each mini-batch: <code id="batchShapeDisplay">(batch_size, sequence_length, features_per_step)</code></p>
+        <div class="important-note">
+            <strong>Key Distinction & Mini-Batch Derivation:</strong><br>
+            - <code class="code">sequence_length</code> (e.g., <span id="noteSeqLen">5</span>): Defines the "depth" or history of <strong>each single observation window</strong>.<br>
+            - <code class="code">n_steps_historical</code> (e.g., <span id="noteNStepsHist">5</span>): How many past observation windows are collected for this analysis/dataset.<br>
+            - <code class="code">batch_size</code> (e.g., <span id="noteBatchSize">2</span>): How many of these <i>collected historical windows</i> are grouped together for <strong>one training update step</strong>.
+            <div class="derivation">
+                Number of Mini-Batches per Epoch = <code class="code">floor(Total Collected Windows / batch_size)</code><br>
+                e.g., <code id="numMiniBatchesExample">floor(5 / 2) = 2</code> mini-batches.
+            </div>
+        </div>
+        <div id="batchedWindowsContainer"></div>
+    </div>
+
+<script>
+    // --- Sample Raw Data (OHLC) ---
+    const rawTimeSeriesData = [
+        // Open| High| Low | Close (0-indexed internally)
+        /*t=1*/ [100,  102,  99,   101], /*t=2*/ [101,  103,  100,  102], /*t=3*/ [102,  102,  101,  101.5],
+        /*t=4*/ [101.5,104,  101,  103.5], /*t=5*/ [103.5,105,  103,  104], /*t=6*/ [104,  106,  103.5,105.5],
+        /*t=7*/ [105.5,107,  105,  106], /*t=8*/ [106,  106,  104.5,105], /*t=9*/ [105,  108,  105,  107.5],
+        /*t=10*/[107.5,109,  107,  108], /*t=11*/[108,  110,  107.5,109.5], /*t=12*/[109.5,111,  109,  110],
+        /*t=13*/[110,  109,  108,  108.5], /*t=14*/[108.5,109.5,108,  109], /*t=15*/[109,  111,  108.5,110.5],
+        /*t=16*/[110.5,112,  110,  111], /*t=17*/[111,  111.5,110,  110.5], /*t=18*/[110.5,112.5,110,  112],
+        /*t=19*/[112,  114,  111.5,113.5], /*t=20*/[113.5,115,  113,  114],
+    ];
+    const featuresPerStep = rawTimeSeriesData[0].length;
+    const featureNames = ['O', 'H', 'L', 'C'];
+    document.getElementById('featuresPerStepDisplay').textContent = `features_per_step = ${featuresPerStep} (${featureNames.join(', ')})`;
+
+    function updateCollectButtonText() {
+        const nStepsHist = parseInt(document.getElementById('nStepsHistInput').value) || 5;
+        document.getElementById('collectButtonNSteps').textContent = nStepsHist;
+        document.getElementById('nStepsToCollectDisplay').textContent = nStepsHist;
+    }
+
+    // --- Helper Function to Create HTML Table ---
+    function createTableHTML(dataArray, headers, highlightStartIdx = -1, highlightEndIdx = -1, highlightCurrentTIdx = -1, windowActualStartTimeT = -1) {
+        // windowActualStartTimeT is the actual 't' value for the first row of dataArray IF dataArray is a window
+        let html = '<table><thead><tr>';
+        headers.forEach(header => html += `<th>${header}</th>`);
+        html += '</tr></thead><tbody>';
+
+        dataArray.forEach((rowData, rowIndex) => {
+            let rowClass = '';
+            const isRawDataTable = headers[0].toLowerCase() === 'time'; // More specific check
+
+            if (isRawDataTable) {
+                if (highlightStartIdx !== -1 && rowIndex >= highlightStartIdx && rowIndex <= highlightEndIdx) {
+                    rowClass += ' highlight-window';
+                }
+                if (highlightCurrentTIdx !== -1 && rowIndex === highlightCurrentTIdx) {
+                    rowClass = rowClass.replace('highlight-window', '').trim();
+                    rowClass += ' highlight-current-t';
+                }
+                html += `<tr class="${rowClass.trim()}">`;
+                // rowData for raw table already includes the t=X string from mapping
+                rowData.forEach((cellData) => html += `<td>${cellData}</td>`);
+            } else { // For observation window tables (extracted, collected, batched)
+                rowClass = 'highlight-window';
+                html += `<tr class="${rowClass.trim()}">`;
+                // Prepend actual time 't' if windowActualStartTimeT is provided
+                if (windowActualStartTimeT !== -1) {
+                    html += `<td>t=${windowActualStartTimeT + rowIndex}</td>`;
+                } else { // Fallback for the single extracted window if startTime not passed (though it should be)
+                    html += `<td>Step ${rowIndex + 1}</td>`;
+                }
+                // rowData for window tables contains only feature values
+                rowData.forEach((cellData) => html += `<td>${cellData}</td>`);
+            }
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        return html;
+    }
+
+
+    let globalCollectedWindowsData = [];
+
+    function visualize() {
+        const sequenceLength = parseInt(document.getElementById('seqLenInput').value);
+        let referenceTimeT = parseInt(document.getElementById('referenceTimeInput').value);
+
+        if (referenceTimeT < sequenceLength) {
+            alert(`'Reference Time (t)' must be at least ${sequenceLength}. Setting to ${sequenceLength}.`);
+            referenceTimeT = sequenceLength;
+            document.getElementById('referenceTimeInput').value = referenceTimeT;
+        }
+        if (referenceTimeT > rawTimeSeriesData.length) {
+            alert(`'Reference Time (t)' cannot exceed data length. Setting to ${rawTimeSeriesData.length}.`);
+            referenceTimeT = rawTimeSeriesData.length;
+            document.getElementById('referenceTimeInput').value = referenceTimeT;
+        }
+        const referenceTimeIdx = referenceTimeT - 1;
+
+        const rawTableHeaders = ['Time', ...featureNames];
+        const rawDataWithTime = rawTimeSeriesData.map((row, i) => [`t=${i + 1}`, ...row]);
+        const highlightStartIdx = referenceTimeIdx - sequenceLength + 1;
+        document.getElementById('rawDataTableContainer').innerHTML = createTableHTML(rawDataWithTime, rawTableHeaders, highlightStartIdx, referenceTimeIdx, referenceTimeIdx);
+
+        document.getElementById('displayReferenceTime').textContent = `t=${referenceTimeT}`;
+        document.getElementById('displaySeqLen').textContent = `sequence_length = ${sequenceLength}`;
+        document.getElementById('obsShapeDisplay').textContent = `(${sequenceLength}, ${featuresPerStep})`;
+
+        if (highlightStartIdx < 0) {
+            document.getElementById('observationWindowContainer').innerHTML = "<p>Not enough past data for a full window.</p>";
+        } else {
+            const observationWindowData = rawTimeSeriesData.slice(highlightStartIdx, referenceTimeIdx + 1);
+            // For the single extracted window, calculate its actual start time 't'
+            const windowStartTimeT = referenceTimeT - sequenceLength + 1;
+            const obsWindowHeaders = ['Time (t)', ...featureNames]; // Changed header
+            // Pass observationWindowData (features only) and its actual start time
+            document.getElementById('observationWindowContainer').innerHTML = createTableHTML(observationWindowData, obsWindowHeaders, -1, -1, -1, windowStartTimeT);
+        }
+        const nStepsHist = parseInt(document.getElementById('nStepsHistInput').value) || 5;
+        const batchSizeForNote = 2;
+        document.getElementById('noteSeqLen').textContent = sequenceLength;
+        document.getElementById('noteNStepsHist').textContent = nStepsHist;
+        document.getElementById('noteBatchSize').textContent = batchSizeForNote;
+        document.getElementById('numMiniBatchesExample').textContent = `floor(${nStepsHist} / ${batchSizeForNote}) = ${Math.floor(nStepsHist / batchSizeForNote)}`;
+        updateCollectButtonText();
+    }
+
+    function collectWindows() {
+        const sequenceLength = parseInt(document.getElementById('seqLenInput').value);
+        let mostRecentTimeTEndingWindow = parseInt(document.getElementById('referenceTimeInput').value);
+        const nHistoricalWindowsToCollect = parseInt(document.getElementById('nStepsHistInput').value);
+
+        if (mostRecentTimeTEndingWindow < sequenceLength) {
+            alert(`To collect, 'Reference Time (t)' must be at least ${sequenceLength}.`);
+            return;
+        }
+        if (mostRecentTimeTEndingWindow - (nHistoricalWindowsToCollect - 1) < sequenceLength) {
+            alert(`Cannot collect ${nHistoricalWindowsToCollect} hist. windows of length ${sequenceLength} ending at t=${mostRecentTimeTEndingWindow}. Not enough history.`);
+            return;
+        }
+
+        const collectedContainer = document.getElementById('collectedWindowsContainer');
+        collectedContainer.innerHTML = '';
+        globalCollectedWindowsData = [];
+        let actualWindowsCollectedCount = 0;
+
+        for (let i = 0; i < nHistoricalWindowsToCollect; i++) {
+            let windowEndTimeT = mostRecentTimeTEndingWindow - i;
+            const windowEndTimeIdx = windowEndTimeT - 1;
+            const startIndexForWindow = windowEndTimeIdx - sequenceLength + 1;
+
+            const windowData = rawTimeSeriesData.slice(startIndexForWindow, windowEndTimeIdx + 1);
+            // Calculate the actual start time 't' for this specific window
+            const windowActualStartTimeT = windowEndTimeT - sequenceLength + 1;
+            globalCollectedWindowsData.push({ data: windowData, originalEndTimeT: windowEndTimeT, windowActualStartTimeT: windowActualStartTimeT });
+            actualWindowsCollectedCount++;
+
+            const div = document.createElement('div');
+            div.className = 'collected-obs';
+            div.innerHTML = `<h3>Hist. Window ${actualWindowsCollectedCount}<br>(ends at t=${windowEndTimeT}, starts at t=${windowActualStartTimeT})</h3>`;
+            const obsWindowHeaders = ['Time (t)', ...featureNames]; // Changed header
+            // Pass windowData (features only) and its actual start time
+            div.innerHTML += createTableHTML(windowData, obsWindowHeaders, -1, -1, -1, windowActualStartTimeT);
+            collectedContainer.appendChild(div);
+        }
+
+        if (globalCollectedWindowsData.length > 0) {
+            simulateTrainingWithEpochs(globalCollectedWindowsData, sequenceLength);
+        } else {
+            document.getElementById('batchedWindowsContainer').innerHTML = "<p>No hist. windows collected.</p>";
+        }
+    }
+
+    function simulateTrainingWithEpochs(collectedWindows, sequenceLength) {
+        const batchSize = 2;
+        const nEpochs = parseInt(document.getElementById('nEpochsInput').value);
+        const batchContainer = document.getElementById('batchedWindowsContainer');
+        batchContainer.innerHTML = '';
+
+        document.getElementById('displayBatchSize').textContent = `batch_size = ${batchSize}`;
+        document.getElementById('displayNEpochs').textContent = `${nEpochs} Epochs`;
+        document.getElementById('batchShapeDisplay').textContent = `(${batchSize}, ${sequenceLength}, ${featuresPerStep})`;
+        const nStepsHist = parseInt(document.getElementById('nStepsHistInput').value) || 5;
+        document.getElementById('noteSeqLen').textContent = sequenceLength;
+        document.getElementById('noteNStepsHist').textContent = nStepsHist;
+        document.getElementById('noteBatchSize').textContent = batchSize;
+        document.getElementById('numMiniBatchesExample').textContent = `floor(${collectedWindows.length} / ${batchSize}) = ${Math.floor(collectedWindows.length / batchSize)}`;
+
+        if (collectedWindows.length === 0) {
+            batchContainer.innerHTML = "<p>No windows collected.</p>";
+            return;
+        }
+
+        for (let epoch = 0; epoch < nEpochs; epoch++) {
+            const epochDiv = document.createElement('div');
+            epochDiv.className = 'epoch-container';
+            epochDiv.innerHTML = `<div class="epoch-title">Epoch ${epoch + 1} / ${nEpochs}</div>`;
+
+            let shuffledWindows = [...collectedWindows];
+            for (let i = shuffledWindows.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffledWindows[i], shuffledWindows[j]] = [shuffledWindows[j], shuffledWindows[i]];
+            }
+
+            let batchCount = 0;
+            for (let i = 0; i < shuffledWindows.length; i += batchSize) {
+                batchCount++;
+                const batchDataItems = shuffledWindows.slice(i, i + batchSize);
+                if (batchDataItems.length === 0) continue;
+
+                const batchTitle = `Mini-Batch ${batchCount} (Size ${batchDataItems.length})`;
+                const batchContentDiv = document.createElement('div');
+                batchContentDiv.innerHTML = `<h4>${batchTitle} - Windows originally ending at: ${batchDataItems.map(item => `t=${item.originalEndTimeT}`).join(', ')}</h4>`;
+
+                batchDataItems.forEach((item) => { // item is { data: windowData, originalEndTimeT: t, windowActualStartTimeT: t_start }
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'batch-item';
+                    const obsWindowHeaders = ['Time (t)', ...featureNames]; // Changed header
+                    // Pass item.data (features only) and its actual start time
+                    itemDiv.innerHTML += createTableHTML(item.data, obsWindowHeaders, -1, -1, -1, item.windowActualStartTimeT);
+                    batchContentDiv.appendChild(itemDiv);
+                });
+                epochDiv.appendChild(batchContentDiv);
+            }
+            if (batchCount === 0 && shuffledWindows.length > 0) {
+                 epochDiv.innerHTML += `<p>Not enough items (${shuffledWindows.length}) for a batch of size ${batchSize}.</p>`;
+            }
+            batchContainer.appendChild(epochDiv);
+        }
+    }
+
+    document.getElementById('visualizeButton').addEventListener('click', visualize);
+    document.getElementById('nextTimeButton').addEventListener('click', () => {
+        let currentTimeInput = document.getElementById('referenceTimeInput');
+        let newTime = parseInt(currentTimeInput.value) + 1;
+        currentTimeInput.value = newTime;
+        visualize();
+    });
+    document.getElementById('collectButton').addEventListener('click', collectWindows);
+    ['seqLenInput', 'referenceTimeInput', 'nStepsHistInput', 'nEpochsInput'].forEach(id => {
+        document.getElementById(id).addEventListener('change', () => {
+            visualize();
+            if (id === 'nStepsHistInput') updateCollectButtonText();
+            if (globalCollectedWindowsData.length > 0) {
+                if (id === 'nStepsHistInput' || id === 'seqLenInput' || id === 'referenceTimeInput') {
+                    document.getElementById('collectedWindowsContainer').innerHTML = '<p Style="color:red;">Parameters changed. Please re-collect historical windows.</p>';
+                    document.getElementById('batchedWindowsContainer').innerHTML = '';
+                    globalCollectedWindowsData = [];
+                } else if (id === 'nEpochsInput') {
+                     simulateTrainingWithEpochs(globalCollectedWindowsData, parseInt(document.getElementById('seqLenInput').value));
+                }
+            }
+        });
+    });
+
+    visualize();
+    updateCollectButtonText();
+</script>
+
+</body>
+</html>
