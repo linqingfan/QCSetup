@@ -83,7 +83,7 @@ To use QuantBook for research:
     ```
 In jupyter environment, look for `BasicQuantBookTemplate.ipynb` to see an example of how to start using QuantBook.
 
-There is a minor amendment often needed for the template: The first code cell to execute in the notebook should be:
+There is a minor amendment: The first code cell to execute in the notebook should be:
 ```python
 %run start.py
 ```
