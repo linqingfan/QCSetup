@@ -57,7 +57,7 @@ cd .vscode
 sh .vscode/launch_research.sh 
 ```
 Look for BasicQuantBookTemplate.ipynb to see how to start quantbook
-There is a minor ammendment need to be made. The first code to execute is:
+There is a minor ammendment: The first code to execute is:
 ```
 %run start.py
 ```
