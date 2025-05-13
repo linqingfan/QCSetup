@@ -58,7 +58,7 @@ This can be turn off by commenting out the file in .vscode/launch,json:
 ```
 //"preLaunchTask": "build",
 ```
-If there is any changes to the system files, you can just recompile as per  [Compile Quantconnect](#Compile Quantconnect)
+If there is any changes to the system files, you can just recompile as per  [Compile Quantconnect](#compile-quantconnect)
 
 ## Quantbook Research
 open a git bash terminal and execute the quantbook jupyter notebook:
