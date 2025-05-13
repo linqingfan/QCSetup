@@ -23,7 +23,7 @@ In the downloaded quantconnect root folder (assuming you have python 3.11 or new
 python -m venv .venv
 .venv\Scripts\activate
 python.exe -m pip install --upgrade pip
-pip install  jupyterlab pandas==2.1.4 wrapt==1.16.0 clr_loader==0.1.6 matplotlib
+pip install  jupyterlab pandas==2.1.4 wrapt==1.16.0 clr_loader==0.1.6 matplotlib debugpy
 python -m ipykernel install --user --name="myvenv" --display-name="python lean"
 pip install --no-cache-dir quantconnect-stubs
 
@@ -45,8 +45,10 @@ dotnet build QuantConnect.Lean.sln -c Release
 
 ## Launching
 You can start running and debugging QC algorithm by specifying the python program in config.json. <br />
-Goto Run and Debug (ctrl shift D) and click launch
-set break point and click Attach to python
+Goto Run and Debug (ctrl shift D) and click launch<br />
+Wait for the console to show listening to port 5678 <br />
+set break point (if you want to debug) and click Attach to python <br />
+There will no graphical output, it will show the sharpe and statistics
 
 ## Quatbook Research
 open a git bash and execute the quantbook jupyter notebook:
