@@ -51,7 +51,7 @@ Wait for the console to show listening to port 5678 <br />
 set break point (if you want to debug) and click Attach to python <br />
 There will be no graphical output, it will show the sharpe and statistics
 
-## Quatbook Research
+## Quantbook Research
 open a git bash terminal and execute the quantbook jupyter notebook:
 ```
 cd .vscode
