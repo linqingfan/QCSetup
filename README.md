@@ -48,10 +48,10 @@ You can start running and debugging QC algorithm by specifying the python progra
 Goto Run and Debug (ctrl shift D) and click launch<br />
 Wait for the console to show listening to port 5678 <br />
 set break point (if you want to debug) and click Attach to python <br />
-There will no graphical output, it will show the sharpe and statistics
+There will be no graphical output, it will show the sharpe and statistics
 
 ## Quatbook Research
-open a git bash and execute the quantbook jupyter notebook:
+open a git bash terminal and execute the quantbook jupyter notebook:
 ```
 cd .vscode
 sh .vscode/launch_research.sh 
