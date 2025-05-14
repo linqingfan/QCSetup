@@ -23,7 +23,7 @@ debugpy.configure(python=python_executable_in_venv)
 
 ## Set up a Python Virtual Environment
 Need to set the environment variable PYTHONNET_PYDLL to set to the system python dll <br />
-Something like this C:\Users\username\AppData\Local\Programs\Python\Python311\python311.dll
+Something like this C:\Users\username\AppData\Local\Programs\Python\Python311\python311.dll <br />
 In the downloaded QuantConnect root folder (assuming you already have Python 3.11 or newer installed on your system):
 ```bash
 python -m venv .venv
