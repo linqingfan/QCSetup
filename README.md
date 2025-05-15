@@ -29,7 +29,7 @@ In the downloaded QuantConnect root folder (assuming you already have Python 3.1
 python -m venv .venv
 .venv\Scripts\activate
 python.exe -m pip install --upgrade pip
-pip install jupyterlab pandas==2.1.4 wrapt==1.16.0 clr_loader==0.1.6 matplotlib debugpy
+pip install packages wheel jupyterlab pandas==2.1.4 wrapt==1.16.0 clr_loader==0.1.6 matplotlib debugpy
 python -m ipykernel install --user --name="myvenv" --display-name="Python Lean"
 pip install --no-cache-dir quantconnect-stubs
 ```
