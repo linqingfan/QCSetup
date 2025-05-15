@@ -50,7 +50,7 @@ dotnet build QuantConnect.Lean.sln
 ```bash
 dotnet build QuantConnect.Lean.sln -c Release
 ```
-If you compile in Release mode, make sure to replace all other settings that have Debug with Release
+If you compile in Release mode, make sure to replace all other settings that have `Debug` with `Release` e.g. in `.vscode/launch.json`
 
 ## Launching and Debugging
 You can start running and debugging a QuantConnect algorithm by specifying the Python algorithm script path in `Launcher/config.json` (e.g., under the `algorithm-location` settings).
