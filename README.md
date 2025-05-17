@@ -316,9 +316,9 @@ The conversion script will:
 
 > **This is a crucial manual step for correct backtesting in LEAN.**
 
-The conversion script generates a file like `usa_market_hours_entry.json`. You need to integrate its contents into LEAN's main market hours database.
+The conversion script generates a file like `hkfe_market_hours_entry.json`. You need to integrate its contents into LEAN's main market hours database.
 
-1. Locate the generated `[market]_market_hours_entry.json` file (e.g., `usa_market_hours_entry.json`).
+1. Note that usa and india markets are already done only other markets need to do this step. Locate the generated `[market]_market_hours_entry.json` file (e.g., `hkfe_market_hours_entry.json`).
 2. Open it and copy its entire JSON content.
 3. Locate LEAN's main market hours database file. This is typically found at:
 
@@ -328,6 +328,6 @@ The conversion script generates a file like `usa_market_hours_entry.json`. You n
 
 4. Open `market-hours-database.json`.
 5. Find the `"entries": { ... }` object.
-6. Paste the copied JSON content as a new entry within the `entries` object. If an entry for your market already exists (e.g., `"Equity-usa-*"`), you may want to merge or replace it.
+6. Paste the copied JSON content as a new entry within the `entries` object. If an entry for your market already exists (e.g., `"Equity-hkfe-*"`), you may want to merge or replace it.
 ### Step 2.4: Markets other than Dow Jones/Nasdaq and India
-The current instructions can work for both markets. However, to make it work for other markets, need to Search in Files in Vscode and find Market.India and try to follow what are the changes that were made to make other exchanges work.
+The current instructions can work for both US and India markets. However, to make it work for other markets, need to Search in Files in Vscode and find Market.India and try to follow what are the changes that were made to make other exchanges work.
