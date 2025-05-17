@@ -318,7 +318,7 @@ The conversion script will:
 
 The conversion script generates a file like `hkfe_market_hours_entry.json`. You need to integrate its contents into LEAN's main market hours database.
 
-1. Note that usa and india markets are already done only other markets need to do this step. Locate the generated `[market]_market_hours_entry.json` file (e.g., `hkfe_market_hours_entry.json`).
+1. Note that usa and india markets are already done. Only other markets require to execute this step. Locate the generated `[market]_market_hours_entry.json` file (e.g., `hkfe_market_hours_entry.json`).
 2. Open it and copy its entire JSON content.
 3. Locate LEAN's main market hours database file. This is typically found at:
 
