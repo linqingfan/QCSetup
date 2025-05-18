@@ -100,7 +100,7 @@ There is a minor amendment: The first code cell to execute in the notebook shoul
 ```
 # Downloading IBKR Data & Converting to LEAN Format
 
-This following outlines the steps to download 1-minute historical data from Interactive Brokers (IBKR) using a Python script and then convert that data into the format required by the QuantConnect LEAN trading engine for local backtesting.
+The following outlines the steps to download 1-minute historical data from Interactive Brokers (IBKR) using a Python script and then convert that data into the format required by the QuantConnect LEAN trading engine for local backtesting.
 
 ## Prerequisites
 
