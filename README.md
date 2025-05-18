@@ -40,7 +40,7 @@ pip install --no-cache-dir quantconnect-stubs
 ```
 After this, in VS Code, make sure you select the `.venv` environment as your Python interpreter.
 
-## Configure `config.json`
+## Configure `Launcher/config.json`
 Set up the Python environment path in `Launcher/config.json` according to the comment in the json file. E.g:
 ```
 "algorithm-type-name": "BasicTemplateAlgorithm", //This refers to the classs name that contain the initialize function
@@ -74,13 +74,13 @@ You can start running and debugging a QuantConnect algorithm by specifying the P
 There will be no graphical chart output during local debugging; the console will display the Sharpe ratio and other statistics after the backtest completes.
 
 ## Disabling Pre-Launch Build
-If there are no code changes in the QuantConnect C# system files, you can turn off the automatic rebuild that occurs each time you launch a debug session. This can speed up iteration.
+If there are no code changes in the QuantConnect C# system files and Launcher/config.json, you can turn off the automatic rebuild that occurs each time you launch a debug session. This can speed up iteration.
 
 To do this, comment out the `preLaunchTask` line in `.vscode/launch.json`:
 ```
 // "preLaunchTask": "build",
 ```
-If you do make changes to the C# system files and config.json, you will need to recompile them manually as described in the [Compile QuantConnect](#compile-quantconnect) section before launching.
+If you do make changes to the C# system files and Launcher/config.json, you will need to recompile them manually as described in the [Compile QuantConnect](#compile-quantconnect) section before launching.
 
 ## QuantBook Research
 To use QuantBook for research:
