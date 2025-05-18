@@ -337,4 +337,4 @@ The conversion script generates a file like `hkfe_market_hours_entry.json`. You 
 5. Find the `"entries": { ... }` object.
 6. Paste the copied JSON content as a new entry within the `entries` object. If an entry for your market already exists (e.g., `"Equity-hkfe-*"`), you may want to merge or replace it.
 ### Step 2.4: Markets other than Dow Jones/Nasdaq and India
-The current instructions can work for both US and India markets. However, to make it work for other markets, need to `Search in Files` in Vscode and find Market.India and try to follow what are the changes that were made to make other exchanges work. Unfortunately, I cant recall the changes I made to make it work.
+The current instructions can work for both US and India markets. However, to make it work for other markets, need to `Search in Files` in Vscode and search for the keyword `Market.India` and try to follow what are the changes that were made to make other exchanges work. Unfortunately, I cant recall the changes I made to make it work.
