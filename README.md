@@ -39,8 +39,12 @@ pip install --no-cache-dir quantconnect-stubs
 After this, in VS Code, make sure you select the `.venv` environment as your Python interpreter.
 
 ## Configure `config.json`
-Set up the Python environment path in `Launcher/config.json` according to the comment in the json file.
-
+Set up the Python environment path in `Launcher/config.json` according to the comment in the json file. E.g:
+```
+"algorithm-type-name": "BasicTemplateAlgorithm",
+"algorithm-language": "Python",
+"algorithm-location": "../../../Algorithm.Python/BasicTemplateAlgorithm.py",
+```
 ## Compile QuantConnect
 To compile Lean:
 
