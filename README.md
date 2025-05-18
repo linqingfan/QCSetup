@@ -89,13 +89,13 @@ There is a minor amendment: The first code cell to execute in the notebook shoul
 ```python
 %run start.py
 ```
-# Guide: Downloading IBKR Data & Converting to LEAN Format
+# Downloading IBKR Data & Converting to LEAN Format
 
-This guide outlines the steps to download 1-minute historical data from Interactive Brokers (IBKR) using a Python script and then convert that data into the format required by the QuantConnect LEAN trading engine for local backtesting.
+This following outlines the steps to download 1-minute historical data from Interactive Brokers (IBKR) using a Python script and then convert that data into the format required by the QuantConnect LEAN trading engine for local backtesting.
 
 ## Prerequisites
 
-- **Python 3.x** installed.
+- **Python 3.11** installed.
 - **Required Python Libraries:**
   - `ibapi` (Interactive Brokers Python API client)
   - `pandas`
@@ -113,13 +113,13 @@ This guide outlines the steps to download 1-minute historical data from Interact
   - Enable "Enable ActiveX and Socket Clients".
   - Note the "Socket port" (e.g., 7497 for TWS, 4002 for Gateway).
   - Optionally, add `127.0.0.1` to "Trusted IP Addresses" if your script runs on the same machine.
-- **QuantConnect LEAN Engine (for local backtesting):** If your goal is to use this data with LEAN locally, you should have LEAN set up.
+- **QuantConnect LEAN Engine (for local backtesting):** Assumed you have setup LEAN successfully as per above section instructions.
 
 ---
 
 ## Part 1: Downloading 1-Minute Data from IBKR
 
-This part uses a Python script (let's call it `download_ibkr_data.py` - this refers to the script you provided earlier, which was refined to read from `config.json`).
+This part uses the Python script (`download_ibkr_data.py`).
 
 ### Step 1.1: Prepare Configuration Files
 
