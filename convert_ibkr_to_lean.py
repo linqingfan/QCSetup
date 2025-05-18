@@ -222,7 +222,7 @@ def convert_ibkr_to_lean(input_csv_path, output_data_folder, ticker, market="hkf
         first_date_str = first_date_obj.strftime('%Y%m%d')
         map_file_dir = Path(output_data_folder) / 'equity' / market / 'map_files'
         map_file_path = map_file_dir / f"{ticker.lower()}.csv"
-        map_content = f"{first_date_str},{ticker.lower()},{ticker.lower()}\n"
+        map_content = f"{first_date_str},{ticker.lower()}\n20501231,{ticker.lower()}\n"
 
         try:
             map_file_dir.mkdir(parents=True, exist_ok=True)
