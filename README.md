@@ -7,7 +7,7 @@ It assumes you have some familiarity with VS Code.
 Download and install the latest version of .NET (e.g., .NET 9.0 or newer) from the official website:
 https://dotnet.microsoft.com/en-us/download/dotnet/9.0
 
-## Download the Quantconnect LEAN source codes:
+## Download Quantconnect LEAN source codes:
 First, download (clone) the QuantConnect Lean repository using a tool such as GitHub Desktop or the command line:
 ```bash
 git clone https://github.com/QuantConnect/Lean
