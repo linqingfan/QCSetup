@@ -80,7 +80,7 @@ To do this, comment out the `preLaunchTask` line in `.vscode/launch.json`:
 ```
 // "preLaunchTask": "build",
 ```
-If you do make changes to the C# system files, you will need to recompile them manually as described in the [Compile QuantConnect](#compile-quantconnect) section before launching.
+If you do make changes to the C# system files and config.json, you will need to recompile them manually as described in the [Compile QuantConnect](#compile-quantconnect) section before launching.
 
 ## QuantBook Research
 To use QuantBook for research:
