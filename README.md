@@ -224,7 +224,7 @@ The script will:
 
 ## Part 2: Converting IBKR Data to LEAN Format
 
-This part uses a Python script (let's call it `convert_ibkr_to_lean.py` - this refers to the second script you provided).
+This part uses the Python script called `convert_ibkr_to_lean.py`.
 
 ### Step 2.1: Prepare Configuration File for Conversion
 
