@@ -265,11 +265,11 @@ def main():
     IBKR_PORT = api_cfg.get("ibkr_port", 7497)
     CLIENT_ID = api_cfg.get("client_id", 1)
     MAX_ACTIVE_REQUESTS = api_cfg.get("max_active_requests", 5)
-    INTER_REQUEST_DELAY = api_cfg.get("inter_request_delay_seconds", 2) # Increased default slightly
+    INTER_REQUEST_DELAY = api_cfg.get("inter_request_delay_seconds", 2)
     MAX_CONNECT_RETRIES = api_cfg.get("max_connect_retries", 5)
     CONNECT_RETRY_DELAY = api_cfg.get("connect_retry_delay_seconds", 30)
     MAX_REQUEST_RETRIES = api_cfg.get("max_request_retries", 3)
-    REQUEST_RETRY_DELAY = api_cfg.get("request_retry_delay_seconds", 15) # Increased default slightly
+    REQUEST_RETRY_DELAY = api_cfg.get("request_retry_delay_seconds", 15)
 
     contract = Contract()
     contract.symbol = contract_details.get("symbol", "DEFAULT_SYMBOL")
@@ -277,7 +277,7 @@ def main():
     contract.exchange = contract_details.get("exchange", "SMART")
     contract.currency = contract_details.get("currency", "USD")
     primary_exchange_val = contract_details.get("primaryExchange")
-    if primary_exchange_val: 
+    if primary_exchange_val:
         contract.primaryExchange = primary_exchange_val
 
     if contract.symbol == "DEFAULT_SYMBOL":
@@ -296,7 +296,7 @@ def main():
         date_range_cfg.get("end_month", today.month),
         date_range_cfg.get("end_day", today.day)
     )
-    
+
     filename_template = output_cfg.get("filename_template", "{symbol}_1min_{start_year}_{end_year}_utc.csv")
     filename = filename_template.format(
         symbol=contract.symbol,
@@ -308,11 +308,9 @@ def main():
     current_run_start_date = overall_start_date
     if os.path.exists(filename):
         try:
-            if os.path.getsize(filename) > 0: # Check if file is not empty
-                # Assuming CSV 'date' column is 'YYYY-MM-DD HH:MM:SS' and represents UTC
+            if os.path.getsize(filename) > 0:
                 df_all_dates = pd.read_csv(filename, usecols=['date'], parse_dates=['date'], infer_datetime_format=True)
                 if not df_all_dates.empty:
-                    # Ensure dates are timezone-aware (UTC) before finding max
                     df_all_dates['date'] = pd.to_datetime(df_all_dates['date'], utc=True)
                     last_recorded_datetime_utc = df_all_dates['date'].max()
                     if pd.notna(last_recorded_datetime_utc):
@@ -336,44 +334,44 @@ def main():
 
     exchange_to_timezone_map = tz_cfg.get("exchange_map", {})
     currency_to_timezone_map = tz_cfg.get("currency_map", {})
-    expected_timezone_str = tz_cfg.get("default_fallback", "America/New_York") # Default if not found
+    default_fallback_tz = tz_cfg.get("default_fallback", "America/New_York")
     
-    # Determine instrument's primary timezone
+    determined_timezone_str = default_fallback_tz # Start with default
     if contract.exchange and contract.exchange.upper() in exchange_to_timezone_map:
-        expected_timezone_str = exchange_to_timezone_map[contract.exchange.upper()]
+        determined_timezone_str = exchange_to_timezone_map[contract.exchange.upper()]
     elif contract.primaryExchange and contract.primaryExchange.upper() in exchange_to_timezone_map:
-         expected_timezone_str = exchange_to_timezone_map[contract.primaryExchange.upper()]
+         determined_timezone_str = exchange_to_timezone_map[contract.primaryExchange.upper()]
     elif contract.currency and contract.currency.upper() in currency_to_timezone_map:
-        expected_timezone_str = currency_to_timezone_map[contract.currency.upper()]
-    print(f"Determined expected timezone for contract {contract.symbol}: {expected_timezone_str}")
+        determined_timezone_str = currency_to_timezone_map[contract.currency.upper()]
+    print(f"Determined expected timezone for contract {contract.symbol}: {determined_timezone_str}")
 
-    app = IBapi(filename=filename, expected_timezone_str=expected_timezone_str)
+    app = IBapi(filename=filename, expected_timezone_str=determined_timezone_str)
     api_thread = None
-    api_request_timezone_str = app.expected_timezone.zone # Get the Olson timezone name string
+    api_request_timezone_str = app.expected_timezone.zone
 
     connected_successfully = False
     for attempt in range(MAX_CONNECT_RETRIES):
         print(f"Attempting to connect to IBKR (Port: {IBKR_PORT}, ClientID: {CLIENT_ID}) (Attempt {attempt + 1}/{MAX_CONNECT_RETRIES})...")
         app.is_connected_event.clear()
         app.next_valid_req_id_ready.clear()
-        app.connection_lost = False # Reset before attempting connection
+        app.connection_lost = False
         if app.isConnected():
             print("Disconnecting existing stale connection...")
             app.disconnect()
             if api_thread and api_thread.is_alive():
                 api_thread.join(timeout=5)
-        
+
         app.connect('127.0.0.1', IBKR_PORT, clientId=CLIENT_ID)
         api_thread = threading.Thread(target=app.run, daemon=True, name="IBAPIThread")
         api_thread.start()
 
-        if app.is_connected_event.wait(timeout=15) and app.next_valid_req_id_ready.wait(timeout=10): # Increased nextValidId timeout
+        if app.is_connected_event.wait(timeout=15) and app.next_valid_req_id_ready.wait(timeout=10):
             print("Successfully connected and nextValidId received.")
             connected_successfully = True
             break
         else:
             print("Failed to connect or receive nextValidId within timeout.")
-            if app.isConnected(): app.disconnect() 
+            if app.isConnected(): app.disconnect()
             if api_thread and api_thread.is_alive():
                 api_thread.join(timeout=5)
             if attempt < MAX_CONNECT_RETRIES - 1:
@@ -381,35 +379,33 @@ def main():
                 time.sleep(CONNECT_RETRY_DELAY)
             else:
                 print("Max connection retries reached. Exiting.")
-                return 
+                return
     if not connected_successfully: return
 
-    tasks_to_process = [] # List of datetime.date objects (end date of the week to fetch)
-    temp_date_iterator = overall_end_date 
+    tasks_to_process = []
+    temp_date_iterator = overall_end_date
     while temp_date_iterator >= current_run_start_date:
         tasks_to_process.append(temp_date_iterator)
-        temp_date_iterator -= datetime.timedelta(days=7) # Request 1 week at a time
-    # tasks_to_process will be in reverse chronological order, pop(0) will get earliest date first
-    tasks_to_process.reverse() 
+        temp_date_iterator -= datetime.timedelta(days=7)
+    tasks_to_process.reverse()
 
     if not tasks_to_process and current_run_start_date <= overall_end_date :
-        # If start and end are within the same initial 7-day block
         tasks_to_process.append(overall_end_date)
     print(f"Generated {len(tasks_to_process)} weekly tasks from {current_run_start_date} to {overall_end_date}.")
 
     while True:
         if app.connection_lost:
             print("Connection lost. Attempting to reconnect...")
-            if app.isConnected(): app.disconnect() 
+            if app.isConnected(): app.disconnect()
             if api_thread and api_thread.is_alive():
-                 api_thread.join(timeout=10) 
-            
+                 api_thread.join(timeout=10)
+
             reconnected = False
             for rec_attempt in range(MAX_CONNECT_RETRIES):
                 print(f"Reconnect attempt {rec_attempt + 1}/{MAX_CONNECT_RETRIES}...")
                 app.is_connected_event.clear()
                 app.next_valid_req_id_ready.clear()
-                app.connection_lost = False # Reset before attempting connection
+                app.connection_lost = False
                 app.connect('127.0.0.1', IBKR_PORT, clientId=CLIENT_ID)
                 api_thread = threading.Thread(target=app.run, daemon=True, name="IBAPIThread-Reconnect")
                 api_thread.start()
@@ -417,30 +413,32 @@ def main():
                     print("Successfully reconnected.")
                     reconnected = True
                     break
-                else: 
+                else:
                     print("Reconnect attempt failed.")
                     if app.isConnected(): app.disconnect()
                     if api_thread and api_thread.is_alive(): api_thread.join(timeout=10)
                     if rec_attempt < MAX_CONNECT_RETRIES - 1: time.sleep(CONNECT_RETRY_DELAY)
             if not reconnected:
                 print("Failed to reconnect after multiple attempts. Exiting processing loop.")
-                break 
-        
+                break
+
         active_requests_count = sum(1 for req_info in bar_collection.values() if req_info['status'] == "incomplete")
-        
-        # Process retries first
-        for r_id in list(bar_collection.keys()): 
+
+        for r_id in list(bar_collection.keys()):
             if bar_collection[r_id]['status'] == "error_retry":
                 if active_requests_count < MAX_ACTIVE_REQUESTS:
                     if bar_collection[r_id]['retry_count'] < MAX_REQUEST_RETRIES:
                         bar_collection[r_id]['retry_count'] += 1
                         error_code = bar_collection[r_id].get('last_error_code', 'N/A')
-                        original_end_date_obj = bar_collection[r_id]['end_date_obj_for_req'] # Get the date object
+                        original_end_date_obj = bar_collection[r_id]['end_date_obj_for_req']
 
                         print(f"Retrying request {r_id} (Attempt {bar_collection[r_id]['retry_count']}/{MAX_REQUEST_RETRIES}), Original EndDate (obj): {original_end_date_obj.strftime('%Y-%m-%d')}, LastError: {error_code}")
-                        
+
                         bar_collection[r_id]['status'] = "incomplete"
-                        
+
+                        # Corrected format for endDateTime string for API
+                        end_date_str_for_api_retry = f"{original_end_date_obj.strftime('%Y%m%d')} 23:59:59 {api_request_timezone_str}"
+
                         if error_code == CSV_WRITE_ERROR_CODE:
                             print(f"Attempting to re-write data for ReqId {r_id} due to previous CSV_WRITE_ERROR.")
                             if bar_collection[r_id]['data']:
@@ -450,89 +448,82 @@ def main():
                                     temp_df_retry = temp_df_retry.sort_values('date')
                                     temp_df_retry.drop_duplicates(subset=['date'], keep='first', inplace=True)
                                     temp_df_retry['date'] = temp_df_retry['date'].dt.strftime('%Y-%m-%d %H:%M:%S')
-                                    
+
                                     file_exists_retry = os.path.exists(app.filename)
                                     write_header_retry = not file_exists_retry or os.path.getsize(app.filename) == 0
                                     try:
                                         temp_df_retry.to_csv(app.filename, mode='a', header=write_header_retry, index=False)
                                         print(f"Successfully re-wrote data for ReqId {r_id}.")
-                                        bar_collection[r_id]['data'] = [] 
+                                        bar_collection[r_id]['data'] = []
                                         bar_collection[r_id]['status'] = "complete"
-                                        continue # Skip re-requesting from API for this specific retry
+                                        continue
                                     except Exception as e_csv_retry:
                                         print(f"Still failed to write CSV for ReqId {r_id} on retry: {e_csv_retry}. Will re-fetch data.")
-                                        # Fall through to re-fetch data
-                                else: 
+                                else:
                                     print(f"Warning: CSV_WRITE_ERROR for ReqId {r_id} but data is empty/invalid. Re-fetching.")
-                            else: # No data to retry writing, must re-fetch
+                            else:
                                  print(f"No data to retry writing for CSV_WRITE_ERROR on ReqId {r_id}. Re-fetching.")
-                            
-                            # Common path for re-fetching if CSV retry fails or data was bad/missing
-                            bar_collection[r_id]['data'] = [] 
-                            end_date_str_for_api_retry = original_end_date_obj.strftime("%Y%m%d") + f" 23:59:59 {api_request_timezone_str}"
+
+                            bar_collection[r_id]['data'] = []
                             request_historical_data(app, contract, end_date_str_for_api_retry, r_id)
                             active_requests_count += 1
                             time.sleep(REQUEST_RETRY_DELAY)
 
                         else: # Not a CSV write error, so re-fetch data from API
-                            bar_collection[r_id]['data'] = [] 
-                            end_date_str_for_api_retry = original_end_date_obj.strftime("%Y%m%d") + f" 23:59:59 {api_request_timezone_str}"
+                            bar_collection[r_id]['data'] = []
                             request_historical_data(app, contract, end_date_str_for_api_retry, r_id)
                             active_requests_count += 1
-                            time.sleep(REQUEST_RETRY_DELAY) 
+                            time.sleep(REQUEST_RETRY_DELAY)
                     else:
                         print(f"Max retries reached for request {r_id} associated with end date {bar_collection[r_id]['end_date_obj_for_req'].strftime('%Y-%m-%d')}. Marking as failed_permanent.")
                         bar_collection[r_id]['status'] = "failed_permanent"
                 else:
-                    break # Max active requests reached, process retries later
+                    break
 
         active_requests_count = sum(1 for req_info in bar_collection.values() if req_info['status'] == "incomplete")
-        
-        # Launch new tasks if capacity allows
+
         while tasks_to_process and active_requests_count < MAX_ACTIVE_REQUESTS:
-            date_to_fetch_end = tasks_to_process.pop(0) # This is a datetime.date object
-            
-            # Construct endDateTime string with timezone for the API
-            end_date_str_req_for_api = date_to_fetch_end.strftime("%Y%m%d") + f" 23:59:59 {api_request_timezone_str}"
-            
+            date_to_fetch_end = tasks_to_process.pop(0)
+
+            # Corrected format for endDateTime string for API: "YYYYMMDD HH:MM:SS TZ_NAME"
+            end_date_str_req_for_api = f"{date_to_fetch_end.strftime('%Y%m%d')} 23:59:59 {api_request_timezone_str}"
+
             current_req_id = app.get_next_req_id()
             print(f"Preparing new request for week ending: {date_to_fetch_end.strftime('%Y-%m-%d')} with req_id: {current_req_id}, API endDateTime: '{end_date_str_req_for_api}'")
-            
+
             bar_collection[current_req_id] = {
-                'data': [], 
-                'status': "incomplete", 
-                'end_date_obj_for_req': date_to_fetch_end, # Store the date object
+                'data': [],
+                'status': "incomplete",
+                'end_date_obj_for_req': date_to_fetch_end,
                 'retry_count': 0
             }
             request_historical_data(app, contract, end_date_str_req_for_api, current_req_id)
             active_requests_count += 1
-            time.sleep(INTER_REQUEST_DELAY) 
-        
+            time.sleep(INTER_REQUEST_DELAY)
+
         all_tasks_initiated = not tasks_to_process
         all_requests_settled = True
-        if not bar_collection and all_tasks_initiated: # No requests made and no tasks left
+        pending_requests = False
+        if not bar_collection and all_tasks_initiated:
             print("All tasks processed or no tasks were generated for this run.")
             break
-        
-        pending_requests = False
+
         for req_id_check, req_status_info in bar_collection.items():
             if req_status_info['status'] in ["incomplete", "error_retry"]:
                 all_requests_settled = False
                 pending_requests = True
-                # print(f"Debug: ReqId {req_id_check} is still {req_status_info['status']}") # Optional debug
                 break
-        
+
         if all_tasks_initiated and all_requests_settled:
             print("All tasks processed and all requests settled (completed or permanently failed) for this run.")
             break
-        
-        if not pending_requests and not tasks_to_process: # Should be caught by above, but as a safeguard
+
+        if not pending_requests and not tasks_to_process:
             print("No pending requests and no tasks to process. Exiting loop.")
             break
 
-        time.sleep(1) # Main loop sleep
+        time.sleep(1)
 
-    # Final summary
     if bar_collection:
         completed_count = sum(1 for req in bar_collection.values() if req['status'] == "complete")
         failed_count = sum(1 for req in bar_collection.values() if req['status'] == "failed_permanent")
@@ -545,7 +536,7 @@ def main():
                 if info['status'] == 'failed_permanent':
                     print(f"    ReqId: {r_id}, End Date: {info['end_date_obj_for_req'].strftime('%Y-%m-%d')}, Last Error: {info.get('last_error_code', 'N/A')}")
     else:
-        if not all_tasks_initiated: # Should ideally not happen if tasks were generated
+        if not all_tasks_initiated:
              print("No requests were processed, and tasks remained. This might indicate an issue.")
         else:
              print("No new requests were needed or processed in this run (e.g., all data already downloaded or no date range).")
@@ -559,6 +550,10 @@ def main():
         api_thread.join(timeout=10)
         if api_thread.is_alive(): print("Warning: API thread did not terminate gracefully.")
     print("Script finished.")
+
+# The IBapi class, load_config, request_historical_data, and other constants/globals remain the same as the previously provided full code.
+# Only main() is shown here for brevity with the specific f-string correction.
+# You would integrate this corrected main() into the full script.
 
 if __name__ == "__main__":
     main()
