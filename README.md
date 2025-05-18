@@ -8,6 +8,8 @@ Download and install the latest version of .NET (e.g., .NET 9.0 or newer) from t
 https://dotnet.microsoft.com/en-us/download/dotnet/9.0
 
 ## `debugpy` bugs fixed (non-docker)
+When running on windows platform, QuantConnect can't determine the path of the python executable <br />
+This is quick fix and may not need it in Linux or other platform. <br />
 First, download (clone) the QuantConnect Lean repository using a tool such as GitHub Desktop or the command line:
 ```bash
 git clone https://github.com/QuantConnect/Lean
