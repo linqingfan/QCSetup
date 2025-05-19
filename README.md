@@ -339,4 +339,60 @@ The conversion script generates a file like `hkfe_market_hours_entry.json`. You 
 5. Find the `"entries": { ... }` object.
 6. Paste the copied JSON content as a new entry within the `entries` object. If an entry for your market already exists (e.g., `"Equity-hkfe-*"`), you may want to merge or replace it.
 ### Step 2.4: Markets other than Dow Jones/Nasdaq and India
-The current instructions can work for both US and India markets. However, to make it work for other markets, need to `Search in Files` in Vscode and search for the keyword `Market.India` and try to follow what are the changes that were made to make other exchanges work. Unfortunately, I cant recall the steps I made.
+The current instructions can work for both US and India markets. However, to make it work for other markets, need to modify the C# programs by referencing to Market.India <br />
+Unfortunately, I cant recall the exact steps I made but this these are some modifications for hong kong exchange:
+
+In Common/Exchange.cs:
+```
+        = new("BOX", "B", "The Boston Option Exchange", QuantConnect.Market.USA, SecurityType.Option, SecurityType.IndexOption); <-- After this line, insert:
+        public static Exchange HKFE { get; }
+            = new("HKFE", "HKFE", "The Hong Kong Stock Exchange", QuantConnect.Market.HKFE, SecurityType.Equity);
+```
+In Common/Global.cs:
+```
+                    case "NSE":
+                        if (market == Market.USA)
+                        {
+                            return Exchange.NSX;
+                        }
+                        else if (market == Market.India)
+                        {
+                            return Exchange.NSE;
+                        }
+                        return Exchange.UNKNOWN; <-- After this line, insert:
+                    case "HKFE":
+                        if (market == Market.USA)
+                        {
+                            return Exchange.NSX;
+                        }
+                        else if (market == Market.India)
+                        {
+                            return Exchange.NSE;
+                        }
+                        else if (market == Market.HKFE)
+                        {
+                            return Exchange.HKFE;
+                        }
+                        return Exchange.UNKNOWN;
+```
+In Engine/DataFeeds/ApiDataProviders.cs, find the following codes:
+```
+                else if (!_subscribedToIndiaEquityMapAndFactorFiles && market.Equals(Market.India, StringComparison.InvariantCultureIgnoreCase)
+                         && (securityType == SecurityType.Equity || securityType == SecurityType.Option || IsAuxiliaryData(filePath)))
+                {
+                    throw new ArgumentException("ApiDataProvider(): Must be subscribed to map and factor files to use the ApiDataProvider " +
+                        "to download India data from QuantConnect. " +
+                        "Please visit https://www.quantconnect.com/datasets/truedata-india-equity-security-master for details.");
+                }
+```
+Insert the codes right after the close curly bracket:
+```
+                // A hack to be able to use Market.HKFE
+                else if (!_subscribedToIndiaEquityMapAndFactorFiles && market.Equals(Market.HKFE, StringComparison.InvariantCultureIgnoreCase)
+                         && (securityType == SecurityType.Equity || securityType == SecurityType.Option || IsAuxiliaryData(filePath)))
+                {
+                    throw new ArgumentException("ApiDataProvider(): Must be subscribed to map and factor files to use the ApiDataProvider " +
+                        "to download India data from QuantConnect. " +
+                        "Please visit https://www.quantconnect.com/datasets/truedata-india-equity-security-master for details.");
+                }
+```
