@@ -101,7 +101,7 @@ To use QuantBook for research:
 
 # Downloading IBKR Data & Converting to LEAN Format
 
-This section details how to download 1-minute historical data from Interactive Brokers (IBKR) and convert it into the Lean-compatible format for local backtesting.
+This section details how to download 1-minute historical data from Interactive Brokers (IBKR) and convert it into the Lean-compatible format for local backtesting. It covers both trade and quote data.
 
 ## Prerequisites
 - **Python 3.11** installed.
@@ -131,7 +131,7 @@ Uses the Python script `download_ibkr_data.py`.
 ### Step 1.1: Prepare Configuration Files
 Create a file named `datadownload_config.json` in the same directory as `download_ibkr_data.py`. This file specifies download parameters.
 
-**Example `datadownload_config.json`:**
+**Example `datadownload_config.json` for trade data:**
 ```json
 {
   "contract_details": {
@@ -157,13 +157,23 @@ Create a file named `datadownload_config.json` in the same directory as `downloa
     "max_connect_retries": 5,
     "connect_retry_delay_seconds": 30,
     "max_request_retries": 3,
-    "request_retry_delay_seconds": 20
+    "request_retries_delay_seconds": 20
   },
   "output": {
     "filename_template": "{symbol}_1min_{start_year}-{end_year}_utc.csv"
   }
 }
 ```
+
+**To download quote data (bid/ask) instead of trade data, include the following in your `datadownload_config.json`:**
+
+```json
+"download_settings": {
+  "download_type": "BID_ASK"
+}
+```
+
+This setting instructs the script to request bid/ask data from IBKR. The resulting CSV file will contain columns such as `bid_open`, `bid_high`, `ask_low`, and `ask_close`, and the output filename will reflect the data type (e.g., `AAPL_bid_ask_1min_2023-2023_utc.csv`). Ensure your IBKR account has the appropriate market data subscriptions to access quote data.
 
 **Key Fields:**
 - `contract_details`: Defines the instrument (symbol, security type, exchange, currency).
@@ -172,6 +182,7 @@ Create a file named `datadownload_config.json` in the same directory as `downloa
 - `api_settings.ibkr_port`: Matches your TWS/Gateway port.
 - `api_settings.client_id`: Unique ID for this connection.
 - `output.filename_template`: Format for the output CSV file.
+- `download_settings.download_type`: Set to `"TRADES"` for trade data or `"BID_ASK"` for quote data.
 
 ### Step 1.2: Run TWS or IB Gateway
 Ensure TWS or IB Gateway is running and logged in, with API settings configured.
@@ -187,9 +198,9 @@ python download_ibkr_data.py
 The script will:
 - Load settings from `datadownload_config.json`.
 - Connect to TWS/Gateway.
-- Download 1-minute data in weekly chunks.
+- Download 1-minute data (trade or quote based on configuration) in weekly chunks.
 - Convert timestamps to UTC.
-- Save data to a CSV (e.g., `AAPL_1min_2023-2023_utc.csv`).
+- Save data to a CSV (e.g., `AAPL_1min_2023-2023_utc.csv` or `AAPL_bid_ask_1min_2023-2023_utc.csv`).
 - Resume from the last date if interrupted.
 
 Monitor the console for progress and errors.
@@ -251,7 +262,7 @@ python convert_ibkr_to_lean.py [INPUT_CSV_PATH] [OUTPUT_LEAN_DATA_DIR] [TICKER] 
 ```
 
 **Arguments:**
-- `[INPUT_CSV_PATH]`: Path to the downloaded CSV (e.g., `AAPL_1min_2023-2023_utc.csv`).
+- `[INPUT_CSV_PATH]`: Path to the downloaded CSV (e.g., `AAPL_1min_2023-2023_utc.csv` or `AAPL_bid_ask_1min_2023-2023_utc.csv`).
 - `[OUTPUT_LEAN_DATA_DIR]`: Lean data directory (e.g., `./lean_data_output`).
 - `[TICKER]`: Symbol (e.g., `AAPL`); converted to lowercase by the script.
 - `-m [MARKET_CODE]`: Market code from `market_config.json` (e.g., `usa`). Defaults to `usa` if omitted.
@@ -268,14 +279,16 @@ The script will:
 4. Scale prices by 10,000.
 5. Generate daily zipped CSV files in:
    ```
-   [OUTPUT_LEAN_DATA_DIR]/equity/[MARKET_CODE]/minute/[ticker_lowercase]/[YYYYMMDD]_trade.zip
+   [OUTPUT_LEAN_DATA_DIR]/equity/[MARKET_CODE]/minute/[ticker_lowercase]/[YYYYMMDD]_{type}.zip
    ```
-   (e.g., `./lean_data_output/equity/usa/minute/aapl/20231201_trade.zip`)
+   where `{type}` is `trade` for trade data or `quote` for quote data (e.g., `./lean_data_output/equity/usa/minute/aapl/20230103_trade.zip` or `./lean_data_output/equity/usa/minute/aapl/20230103_quote.zip`).
 6. Create a map file in:
    ```
    [OUTPUT_LEAN_DATA_DIR]/equity/[MARKET_CODE]/map_files/
    ```
 7. Output a `[market]_market_hours_entry.json` file (e.g., `usa_market_hours_entry.json`).
+
+**Note:** The conversion script automatically detects whether the input CSV contains trade data (with columns `open`, `high`, `low`, `close`, `volume`) or quote data (with columns `bid_open`, `bid_high`, `ask_low`, `ask_close`). It processes the data accordingly and generates LEAN files with `trade` or `quote` suffixes in the filenames.
 
 ### Step 2.3: Update LEAN's Market Hours Database (Manual Step)
 > **Critical for accurate backtesting.**
@@ -319,3 +332,5 @@ else if (!_subscribedToIndiaEquityMapAndFactorFiles && market.Equals(Market.HKFE
 ```
 
 These changes enable Lean to recognize HKFE data.
+
+---
