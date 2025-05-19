@@ -13,7 +13,7 @@ currency = "HKD"
 market = "hkfe"
 tz = "Asia/Hong_Kong"
 
-#ticker = "JD"
+#ticker = "NVDA"
 #currency = "USD"
 #market = "usa"
 #tz = "America/New_York"
