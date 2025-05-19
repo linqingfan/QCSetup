@@ -8,24 +8,22 @@ from datetime import datetime, date, timedelta
 from System import TimeSpan, DateTime # Import .NET DateTime
 from System.Collections.Generic import Dictionary, List # Import .NET Dictionary and List types
 # endregion
-ticker = "1211"
-currency = "HKD"
-market = "hkfe"
-tz = "Asia/Hong_Kong"
 
-#ticker = "NVDA"
-#currency = "USD"
-#market = "usa"
-#tz = "America/New_York"
+#ticker = "1211"
+#currency = "HKD"
+#market = "hkfe"
+#tz = "Asia/Hong_Kong"
+
+ticker = "NVDA"
+currency = "USD"
+market = "usa"
+tz = "America/New_York"
 
 class TradingAlgorithm(QCAlgorithm):
 
     def initialize(self):
-        # Locally Lean installs free sample data, to download more data please visit https://www.quantconnect.com/docs/v2/lean-cli/datasets/downloading-data
         self.set_start_date(2025, 1, 14)  # Set Start Date
         self.set_end_date(2025, 1, 16)  # Set End Date
-        #self.set_start_date(2019, 7, 9)  # Set Start Date
-        #self.set_end_date(2019, 7, 11)  # Set End Date
         self.set_time_zone(tz)
         
         self.set_account_currency(currency)
