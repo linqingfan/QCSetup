@@ -335,5 +335,5 @@ else if (!_subscribedToIndiaEquityMapAndFactorFiles && market.Equals(Market.HKFE
 }
 ```
 
-If these changes still cant't enable Lean to recognize HKFE data, you will need to find in files and search for Market.India to refer to how India market was recognized. <br />
-You may want to refer to main.py to see if the data can be printed in console.
+If these changes still cant't enable Lean to recognize HKFE data, you will need to `find in files` and search for `Market.India` to refer to how India market was recognized. <br />
+You may want to refer to `main.py` to see if the data can be printed in console.
