@@ -140,51 +140,34 @@ This file controls the download parameters, contract details, API settings, and 
 
 ```json
 {
-  "contract": {
+  "contract_details": {
     "symbol": "AAPL",
     "secType": "STK",
     "exchange": "SMART",
-    "currency": "USD",
-    "primaryExchange": "NASDAQ"
+    "currency": "USD"
   },
+  "instrument_timezone": "America/New_York",
+
   "date_range": {
-    "start_year": 2022,
-    "start_month": 1,
+    "start_year": 2023,
+    "start_month": 12,
     "start_day": 1,
     "end_year": 2023,
     "end_month": 12,
-    "end_day": 31
+    "end_day": 15
   },
   "api_settings": {
     "ibkr_port": 7497,
-    "client_id": 10,
+    "client_id": 1,
     "max_active_requests": 5,
-    "inter_request_delay_seconds": 2,
+    "inter_request_delay_seconds": 3,
     "max_connect_retries": 5,
     "connect_retry_delay_seconds": 30,
     "max_request_retries": 3,
-    "request_retry_delay_seconds": 10
+    "request_retry_delay_seconds": 20
   },
   "output": {
-    "filename_template": "{symbol}_1min_{start_year}_{end_year}_incremental.csv"
-  },
-  "timezone_overrides": {
-    "exchange_map": {
-        "SEHK": "Asia/Hong_Kong",
-        "NSE": "Asia/Kolkata",
-        "IDEALPRO": "UTC",
-        "NASDAQ": "America/New_York",
-        "NYSE": "America/New_York",
-        "ARCA": "America/New_York"
-    },
-    "currency_map": {
-        "HKD": "Asia/Hong_Kong",
-        "INR": "Asia/Kolkata",
-        "USD": "America/New_York",
-        "EUR": "Europe/Berlin",
-        "JPY": "Asia/Tokyo"
-    },
-    "default_fallback": "America/New_York"
+    "filename_template": "{symbol}_1min_{start_year}-{end_year}_utc.csv"
   }
 }
 ```
