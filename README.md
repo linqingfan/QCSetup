@@ -43,7 +43,11 @@ Edit `Launcher/config.json` to specify your algorithm details. Example:
 {
   "algorithm-type-name": "BasicTemplateAlgorithm",
   "algorithm-language": "Python",
-  "algorithm-location": "../../../Algorithm.Python/BasicTemplateAlgorithm.py"
+  "algorithm-location": "../../../Algorithm.Python/BasicTemplateAlgorithm.py",
+
+
+  "debugging": true,
+  "debugging-method": "Debugpy",
 }
 ```
 - `"algorithm-type-name"`: The class name containing the `Initialize` function.
