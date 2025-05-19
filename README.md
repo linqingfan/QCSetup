@@ -1,144 +1,117 @@
-# QuantConnect Local Lean Setup
-
-This guide provides instructions to set up QuantConnect Lean to run locally on Windows without using Docker.
-It assumes you have some familiarity with VS Code.
-
-## Install the Latest .NET
-Download and install the latest version of .NET (e.g., .NET 9.0 or newer) from the official website:
-https://dotnet.microsoft.com/en-us/download/dotnet/9.0
-
-## Download Quantconnect LEAN source codes:
-First, download (clone) the QuantConnect Lean repository using a tool such as GitHub Desktop or the command line:
-```bash
+QuantConnect Local Lean Setup
+This guide provides instructions to set up QuantConnect Lean to run locally on Windows without using Docker. It assumes you have some familiarity with Visual Studio Code (VS Code).
+Install the Latest .NET
+Download and install the latest version of .NET (e.g., .NET 9.0 or newer) from the official website:https://dotnet.microsoft.com/en-us/download/dotnet/9.0
+Download QuantConnect LEAN Source Codes
+Clone the QuantConnect Lean repository using GitHub Desktop or the command line. Ensure Git is installed on your system:
 git clone https://github.com/QuantConnect/Lean
-```
 
-## `debugpy` bugs fixed on Windows Platform (non-docker)
-When running on Windows platform, debugpy code in QuantConnect can't determine the path of the python executable <br />
-This is a quick fix and may not need to be performed in Linux or other platform. <br />
-
-In `AlgorithmFactory/DebuggerHelper.cs`:
-```
-import debugpy <---after this line insert the following:
-import os,sys
+Fix debugpy Bugs on Windows Platform (Non-Docker)
+On Windows, the debugpy module in QuantConnect may fail to locate the Python executable. This quick fix is specific to Windows and may not be needed on Linux or other platforms.
+Modify AlgorithmFactory/DebuggerHelper.cs by adding the following lines after import debugpy:
+import debugpy
+import os, sys
 python_executable_in_venv = os.path.join(sys.prefix, 'Scripts', 'python.exe')
 debugpy.configure(python=python_executable_in_venv)
-```
 
-## Set up a Python Virtual Environment
-Need to set the environment variable **PYTHONNET_PYDLL** to the system python dll <br />
-The path of the DLL looks something like this C:\Users\username\AppData\Local\Programs\Python\Python311\python311.dll. <br />
-<br />
-In the downloaded QuantConnect root folder (assuming you already have Python 3.11 installed on your system), execute the following commands:
-```bash
+Set Up a Python Virtual Environment
+Set the environment variable PYTHONNET_PYDLL to the path of your system Python DLL, e.g., C:\Users\username\AppData\Local\Programs\Python\Python311\python311.dll.
+In the QuantConnect Lean root folder (assuming Python 3.11 is installed), run these commands:
 python -m venv .venv
 .venv\Scripts\activate
 python.exe -m pip install --upgrade pip
-pip install packages wheel jupyterlab pandas==2.1.4 wrapt==1.16.0 clr_loader==0.1.6 matplotlib debugpy
+pip install wheel jupyterlab pandas==2.1.4 wrapt==1.16.0 clr_loader==0.1.6 matplotlib debugpy
 python -m ipykernel install --user --name="myvenv" --display-name="Python Lean"
 pip install --no-cache-dir quantconnect-stubs
-```
-After this, in VS Code, make sure you select the `.venv` environment as your Python interpreter.
 
-## Configure `Launcher/config.json`
-Set up the Python environment path in `Launcher/config.json` according to the comment in the json file. E.g:
-```
-"algorithm-type-name": "BasicTemplateAlgorithm", //This refers to the classs name that contain the initialize function
-"algorithm-language": "Python",
-"algorithm-location": "../../../Algorithm.Python/BasicTemplateAlgorithm.py",
-```
-## Compile QuantConnect
-To compile Lean:
+Afterward, in VS Code, select the .venv environment as your Python interpreter.
+Configure Launcher/config.json
+Edit Launcher/config.json to specify your algorithm details. Example:
+{
+  "algorithm-type-name": "BasicTemplateAlgorithm",
+  "algorithm-language": "Python",
+  "algorithm-location": "../../../Algorithm.Python/BasicTemplateAlgorithm.py"
+}
 
-**Debug mode:**
-```bash
+
+"algorithm-type-name": The class name containing the Initialize function.
+"algorithm-language": Set to "Python".
+"algorithm-location": Path to your Python algorithm script.
+
+Compile QuantConnect
+Compile Lean using one of these commands:
+Debug Mode:
 dotnet build QuantConnect.Lean.sln
-```
 
-**Release mode:**
-```bash
+Release Mode:
 dotnet build QuantConnect.Lean.sln -c Release
-```
-If you compile in Release mode, make sure to replace all other settings that have `Debug` with `Release` e.g. in `.vscode/launch.json`
 
-## Launching and Debugging
-You can start running and debugging a QuantConnect algorithm by specifying the Python algorithm script path in `Launcher/config.json` (e.g., under the `algorithm-location` settings).
+If using Release mode, update all instances of "Debug" to "Release" in related settings (e.g., .vscode/launch.json).
+Launching and Debugging
+To run and debug a QuantConnect algorithm:
 
-1.  In VS Code, go to "Run and Debug" (Ctrl+Shift+D).
-2.  Select the "launch" configuration.
-3.  Click the "play" icon
-4.  Wait for the console to show a message like "Debugger listening on port 5678".
-5.  Set breakpoints in your Python algorithm code (if desired).
-6.  In the "Run and Debug" view, select the "Attach to Python" configuration and click play.
+In VS Code, open "Run and Debug" (Ctrl+Shift+D).
+Select the "launch" configuration.
+Click the "play" icon.
+Wait for the console to display "Debugger listening on port 5678".
+Set breakpoints in your Python algorithm code (optional).
+Select the "Attach to Python" configuration and click play.
 
-There will be no graphical chart output during local debugging; the console will display the Sharpe ratio and other statistics after the backtest completes.
-
-## Disabling Pre-Launch Build
-If there are no code changes in the QuantConnect C# system files and Launcher/config.json, you can turn off the automatic rebuild that occurs each time you launch a debug session. This can speed up iteration.
-
-To do this, comment out the `preLaunchTask` line in `.vscode/launch.json`:
-```
+No graphical charts are displayed during local debugging; results like Sharpe ratio appear in the console after backtesting.
+Disabling Pre-Launch Build
+To skip automatic rebuilding when no changes are made to C# files or Launcher/config.json, comment out the preLaunchTask in .vscode/launch.json:
 // "preLaunchTask": "build",
-```
-If you do make changes to the C# system files and Launcher/config.json, you will need to recompile them manually as described in the [Compile QuantConnect](#compile-quantconnect) section before launching.
 
-## QuantBook Research
+If changes are made, manually recompile as described in Compile QuantConnect.
+QuantBook Research
 To use QuantBook for research:
 
-1.  Open a Git Bash terminal (or any terminal that can execute shell scripts).
-2.  Navigate to your QuantConnect Lean project root directory.
-3.  Execute the QuantBook Jupyter Notebook launch script in .vscode directory:
-    ```bash
-    cd .vscode
-    sh launch_research.sh 
-    ```
-In jupyter environment, look for `BasicQuantBookTemplate.ipynb` to see an example of how to start using QuantBook.
+Open a Git Bash terminal (or any shell supporting .sh scripts).
+Navigate to the Lean project root directory.
+Run the Jupyter Notebook launch script:cd .vscode
+sh launch_research.sh
 
-There is a minor amendment: The first code cell to execute in the notebook should be:
-```python
-%run start.py
-```
-# Downloading IBKR Data & Converting to LEAN Format
 
-The following outlines the steps to download 1-minute historical data from Interactive Brokers (IBKR) using a Python script and then convert that data into the format required by the QuantConnect LEAN trading engine for local backtesting.
+In Jupyter, open BasicQuantBookTemplate.ipynb for an example.
+In the first cell, execute:%run start.py
 
-## Prerequisites
 
-- **Python 3.11** installed.
-- **Required Python Libraries:**
-  - `ibapi` (Interactive Brokers Python API client)
-  - `pandas`
-  - `pytz`
 
-  You can install them using pip:
+Downloading IBKR Data & Converting to LEAN Format
+This section details how to download 1-minute historical data from Interactive Brokers (IBKR) and convert it into the Lean-compatible format for local backtesting.
+Prerequisites
 
-  ```bash
-  pip install ibapi pandas pytz
-  ```
+Python 3.11 installed.
 
-- **Interactive Brokers Account:** You need an IBKR account with market data subscriptions for the instruments you wish to download.
-- **IBKR Trader Workstation (TWS) or IB Gateway:** One of these must be running and configured for API connections.
-  - In TWS/Gateway: Go to **File > Global Configuration > API > Settings**.
-  - Enable "Enable ActiveX and Socket Clients".
-  - Note the "Socket port" (e.g., 7497 for TWS, 4002 for Gateway).
-  - Optionally, add `127.0.0.1` to "Trusted IP Addresses" if your script runs on the same machine.
-- **QuantConnect LEAN Engine (for local backtesting):** Assumed you have setup LEAN successfully as per above section instructions.
+Required Python Libraries:
 
----
+ibapi (Interactive Brokers API client)
+pandas
+pytz
 
-## Part 1: Downloading 1-Minute Data from IBKR
+Install them with:
+pip install ibapi pandas pytz
 
-This part uses the Python script (`download_ibkr_data.py`).
 
-### Step 1.1: Prepare Configuration Files
+Interactive Brokers Account: Requires market data subscriptions for desired instruments.
 
-You will need two JSON configuration files in the same directory as `download_ibkr_data.py`:
+IBKR Trader Workstation (TWS) or IB Gateway: Must be running with API access enabled:
 
-#### A. `config.json` (for the download script)
+In TWS/Gateway: Go to File > Global Configuration > API > Settings.
+Check "Enable ActiveX and Socket Clients".
+Note the "Socket port" (e.g., 7497 for TWS, 4002 for Gateway).
+Optionally, add 127.0.0.1 to "Trusted IP Addresses" if running locally.
 
-This file controls the download parameters, contract details, API settings, and date ranges.
 
-```json
+QuantConnect LEAN Engine: Assumes Lean is set up as per the above section.
+
+
+
+Part 1: Downloading 1-Minute Data from IBKR
+Uses the Python script download_ibkr_data.py.
+Step 1.1: Prepare Configuration Files
+Create a file named datadownload_config.json in the same directory as download_ibkr_data.py. This file specifies download parameters.
+Example datadownload_config.json:
 {
   "contract_details": {
     "symbol": "AAPL",
@@ -147,7 +120,6 @@ This file controls the download parameters, contract details, API settings, and 
     "currency": "USD"
   },
   "instrument_timezone": "America/New_York",
-
   "date_range": {
     "start_year": 2023,
     "start_month": 12,
@@ -170,54 +142,41 @@ This file controls the download parameters, contract details, API settings, and 
     "filename_template": "{symbol}_1min_{start_year}-{end_year}_utc.csv"
   }
 }
-```
 
-**Key fields to customize in `config.json`:**
+Key Fields:
 
-- `contract`: Define the symbol, security type, exchange, currency, and optionally primary exchange.
-- `date_range`: Specify the overall start and end dates for the data download.
-- `api_settings.ibkr_port`: Match this to your TWS/Gateway socket port.
-- `api_settings.client_id`: A unique integer for this API connection.
-- `timezone_overrides`: Adjust if necessary, though the defaults cover common cases.
+contract_details: Defines the instrument (symbol, security type, exchange, currency).
+instrument_timezone: Timezone of the instrument (e.g., "America/New_York").
+date_range: Start and end dates for data.
+api_settings.ibkr_port: Matches your TWS/Gateway port.
+api_settings.client_id: Unique ID for this connection.
+output.filename_template: Format for the output CSV file.
 
-### Step 1.2: Run TWS or IB Gateway
+Step 1.2: Run TWS or IB Gateway
+Ensure TWS or IB Gateway is running and logged in, with API settings configured.
 
-Ensure your TWS or IB Gateway application is running and you are logged in. The API settings must be configured as mentioned in the prerequisites.
+Note: IBKR allows only one active session per account at a time. Avoid conflicts by ensuring no other sessions are active elsewhere.
 
-> **Important:** Interactive Brokers typically allows a user account to have an active trading session (including API) from only **one IP address at a time**. If you get errors like "Trading TWS session is connected from a different IP address," ensure you are not logged into TWS/Gateway elsewhere with the same user credentials.
-
-### Step 1.3: Execute the Download Script
-
-Open your terminal or command prompt, navigate to the directory containing `download_ibkr_data.py` and `config.json`, and run the script:
-
-```bash
+Step 1.3: Execute the Download Script
+Navigate to the directory with download_ibkr_data.py and datadownload_config.json, then run:
 python download_ibkr_data.py
-```
 
 The script will:
 
-- Read settings from `config.json`.
-- Connect to TWS/Gateway.
-- Request 1-minute historical data in weekly chunks.
-- Handle timezones, converting data to UTC.
-- Save the data incrementally to a CSV file (e.g., `AAPL_1min_2022_2023_incremental.csv`).
-- The script includes resume capabilities; if run again, it will attempt to pick up where it left off based on the last date in the CSV.
+Load settings from datadownload_config.json.
+Connect to TWS/Gateway.
+Download 1-minute data in weekly chunks.
+Convert timestamps to UTC.
+Save data to a CSV (e.g., AAPL_1min_2023-2023_utc.csv).
+Resume from the last date if interrupted.
 
-*Monitor the console output for progress and any error messages.*
+Monitor the console for progress and errors.
 
----
-
-## Part 2: Converting IBKR Data to LEAN Format
-
-This part uses the Python script `convert_ibkr_to_lean.py`.
-
-### Step 2.1: Prepare Configuration File for Conversion
-
-#### A. `market_config.json` (for the conversion script)
-
-This file defines market-specific parameters like standard trading hours, pre/post market sessions, and weekend days. Create this file in the same directory as `convert_ibkr_to_lean.py`.
-
-```json
+Part 2: Converting IBKR Data to LEAN Format
+Uses the Python script convert_ibkr_to_lean.py.
+Step 2.1: Prepare Configuration File for Conversion
+Create market_config.json in the same directory as convert_ibkr_to_lean.py. This defines market hours and timezones.
+Example market_config.json:
 {
   "hkfe": {
     "timezone": "Asia/Hong_Kong",
@@ -250,132 +209,74 @@ This file defines market-specific parameters like standard trading hours, pre/po
     "weekendDays": [5, 6]
   }
 }
-```
 
-**Key fields to customize in `market_config.json`:**
+Key Fields:
 
-- Add entries for each market you need (e.g., `"usa"`, `"hkfe"`). The key should match the `-m` or `--market` argument you'll use when running the script.
-- `timezone`: The official IANA timezone string for the market (e.g., `"America/New_York"`, `"Asia/Hong_Kong"`).
-- `preMarketStart`, `preMarketEnd`, `marketStart`, `marketEnd`, `postMarketStart`, `postMarketEnd`: Define the session times in HH:MM:SS format in the market's local time.
-- `weekendDays`: A list of integers representing weekend days (0=Monday, ..., 6=Sunday). Typically `[5, 6]`.
+Market key (e.g., "usa"): Matches the -m argument in the script.
+timezone: IANA timezone (e.g., "America/New_York").
+Session times: preMarketStart, marketStart, etc., in HH:MM:SS format (local time).
+weekendDays: List of weekend days (0=Monday, 6=Sunday).
 
-### Step 2.2: Execute the Conversion Script
-
-Open your terminal or command prompt, navigate to the directory containing `convert_ibkr_to_lean.py` and `market_config.json`. Run the script with the appropriate arguments:
-
-```bash
+Step 2.2: Execute the Conversion Script
+Run the script with:
 python convert_ibkr_to_lean.py [INPUT_CSV_PATH] [OUTPUT_LEAN_DATA_DIR] [TICKER] -m [MARKET_CODE]
-```
 
-**Argument Explanation:**
+Arguments:
 
-- `[INPUT_CSV_PATH]`: Path to the CSV file generated by the download script (e.g., `AAPL_1min_2022_2023_incremental.csv`).
-- `[OUTPUT_LEAN_DATA_DIR]`: Path to your root LEAN data folder (e.g., `./data` or the `Data` directory in your LEAN project).
-- `[TICKER]`: The ticker symbol (e.g., `AAPL`). This should be in lowercase for LEAN file naming conventions. The script will handle lowercasing.
-- `-m [MARKET_CODE]` or `--market [MARKET_CODE]`: The LEAN market code (e.g., `usa`, `hkfe`). This must match a key in your `market_config.json`. Defaults to `hkfe` if not provided.
+[INPUT_CSV_PATH]: Path to the downloaded CSV (e.g., AAPL_1min_2023-2023_utc.csv).
+[OUTPUT_LEAN_DATA_DIR]: Lean data directory (e.g., ./lean_data_output).
+[TICKER]: Symbol (e.g., AAPL); converted to lowercase by the script.
+-m [MARKET_CODE]: Market code from market_config.json (e.g., usa). Defaults to usa if omitted.
 
-**Example Command:**
+Example:
+python convert_ibkr_to_lean.py AAPL_1min_2023-2023_utc.csv ./lean_data_output aapl -m usa
 
-```bash
-python convert_ibkr_to_lean.py AAPL_1min_2022_2023_incremental.csv ./lean_data_output AAPL -m usa
-```
+The script will:
 
-The conversion script will:
+Read the CSV and market_config.json.
+Convert UTC timestamps to local market time.
+Shift IBKR timestamps (+1 minute) to match Lean’s end-of-bar convention.
+Scale prices by 10,000.
+Generate daily zipped CSV files in:[OUTPUT_LEAN_DATA_DIR]/equity/[MARKET_CODE]/minute/[ticker_lowercase]/[YYYYMMDD]_trade.zip
 
-1. Read the IBKR data CSV.
-2. Load market parameters from `market_config.json`.
-3. Convert UTC timestamps to the local market time.
-4. **Adjust timestamps:** IBKR bar timestamps (start of bar) are shifted by +1 minute to represent the LEAN convention (end of bar).
-5. Calculate LEAN's millisecond-based time format.
-6. Scale prices by 10000.
-7. Create daily zipped CSV files in the LEAN directory structure:
+(e.g., ./lean_data_output/equity/usa/minute/aapl/20231201_trade.zip)
+Create a map file in:[OUTPUT_LEAN_DATA_DIR]/equity/[MARKET_CODE]/map_files/
 
-   ```
-   [OUTPUT_LEAN_DATA_DIR]/equity/[MARKET_CODE]/minute/[ticker_lowercase]/[YYYYMMDD]_trade.zip
-   ```
 
-   (e.g., `./lean_data_output/equity/usa/minute/aapl/20230103_trade.zip`)
+Output a [market]_market_hours_entry.json file (e.g., usa_market_hours_entry.json).
 
-8. Generate a map file for the ticker in:
+Step 2.3: Update LEAN's Market Hours Database (Manual Step)
 
-   ```
-   [OUTPUT_LEAN_DATA_DIR]/equity/[MARKET_CODE]/map_files/
-   ```
+Critical for accurate backtesting.
 
-9. Generate a `[market]_market_hours_entry.json` file (e.g., `usa_market_hours_entry.json`) in the same directory as the script.
+Incorporate the generated [market]_market_hours_entry.json into Lean’s database:
 
-### Step 2.3: Update LEAN's Market Hours Database (Manual Step)
+Open the generated file (e.g., usa_market_hours_entry.json) and copy its contents.
+Locate Lean’s market-hours-database.json:[YourLeanProject]/Data/market-hours/market-hours-database.json
 
-> **This is a crucial manual step for correct backtesting in LEAN.**
 
-The conversion script generates a file like `hkfe_market_hours_entry.json`. You need to integrate its contents into LEAN's main market hours database.
+Open it, find the "entries" object, and paste the copied content as a new entry. Merge or replace if an entry exists.
 
-1. Note that usa and india markets are already done. Only other markets require to execute this step. Locate the generated `[market]_market_hours_entry.json` file (e.g., `hkfe_market_hours_entry.json`).
-2. Open it and copy its entire JSON content.
-3. Locate LEAN's main market hours database file. This is typically found at:
-
-   ```
-   [YourLeanProject]/Data/market-hours/market-hours-database.json
-   ```
-
-4. Open `market-hours-database.json`.
-5. Find the `"entries": { ... }` object.
-6. Paste the copied JSON content as a new entry within the `entries` object. If an entry for your market already exists (e.g., `"Equity-hkfe-*"`), you may want to merge or replace it.
-### Step 2.4: Markets other than Dow Jones/Nasdaq and India
-The current instructions can work for both US and India markets. However, to make it work for other markets, need to modify the C# programs by referencing to Market.India <br />
-Unfortunately, I cant recall the exact steps I made but this these are some modifications for hong kong exchange:
-
+Step 2.4: Markets Other Than Dow Jones/Nasdaq and India
+US and India markets are natively supported. For others (e.g., HKFE), modify Lean’s C# code using Market.India as a template. Example for HKFE:
 In Common/Exchange.cs:
-```
-        = new("BOX", "B", "The Boston Option Exchange", QuantConnect.Market.USA, SecurityType.Option, SecurityType.IndexOption); <-- After this line, insert:
-        public static Exchange HKFE { get; }
-            = new("HKFE", "HKFE", "The Hong Kong Stock Exchange", QuantConnect.Market.HKFE, SecurityType.Equity);
-```
+public static Exchange HKFE { get; } = new("HKFE", "HKFE", "The Hong Kong Stock Exchange", QuantConnect.Market.HKFE, SecurityType.Equity);
+
 In Common/Global.cs:
-```
-                    case "NSE":
-                        if (market == Market.USA)
-                        {
-                            return Exchange.NSX;
-                        }
-                        else if (market == Market.India)
-                        {
-                            return Exchange.NSE;
-                        }
-                        return Exchange.UNKNOWN; <-- After this line, insert:
-                    case "HKFE":
-                        if (market == Market.USA)
-                        {
-                            return Exchange.NSX;
-                        }
-                        else if (market == Market.India)
-                        {
-                            return Exchange.NSE;
-                        }
-                        else if (market == Market.HKFE)
-                        {
-                            return Exchange.HKFE;
-                        }
-                        return Exchange.UNKNOWN;
-```
-In Engine/DataFeeds/ApiDataProviders.cs, find the following codes:
-```
-                else if (!_subscribedToIndiaEquityMapAndFactorFiles && market.Equals(Market.India, StringComparison.InvariantCultureIgnoreCase)
-                         && (securityType == SecurityType.Equity || securityType == SecurityType.Option || IsAuxiliaryData(filePath)))
-                {
-                    throw new ArgumentException("ApiDataProvider(): Must be subscribed to map and factor files to use the ApiDataProvider " +
-                        "to download India data from QuantConnect. " +
-                        "Please visit https://www.quantconnect.com/datasets/truedata-india-equity-security-master for details.");
-                }
-```
-Insert the codes right after the close curly bracket:
-```
-                // A hack to be able to use Market.HKFE
-                else if (!_subscribedToIndiaEquityMapAndFactorFiles && market.Equals(Market.HKFE, StringComparison.InvariantCultureIgnoreCase)
-                         && (securityType == SecurityType.Equity || securityType == SecurityType.Option || IsAuxiliaryData(filePath)))
-                {
-                    throw new ArgumentException("ApiDataProvider(): Must be subscribed to map and factor files to use the ApiDataProvider " +
-                        "to download India data from QuantConnect. " +
-                        "Please visit https://www.quantconnect.com/datasets/truedata-india-equity-security-master for details.");
-                }
-```
+case "HKFE":
+    if (market == Market.HKFE)
+    {
+        return Exchange.HKFE;
+    }
+    return Exchange.UNKNOWN;
+
+In Engine/DataFeeds/ApiDataProviders.cs:After the India check, add:
+else if (!_subscribedToIndiaEquityMapAndFactorFiles && market.Equals(Market.HKFE, StringComparison.InvariantCultureIgnoreCase)
+         && (securityType == SecurityType.Equity || securityType == SecurityType.Option || IsAuxiliaryData(filePath)))
+{
+    throw new ArgumentException("ApiDataProvider(): Must be subscribed to map and factor files to use the ApiDataProvider " +
+        "to download HKFE data from QuantConnect. " +
+        "Please visit https://www.quantconnect.com/datasets for details.");
+}
+
+These changes hopefully enable Lean to recognize HKFE data.
