@@ -38,38 +38,24 @@ class TradingAlgorithm(QCAlgorithm):
         self.asset=self.AddEquity(ticker=ticker,
                     resolution=Resolution.Minute,
                     market=market,
-                    #fillForward=False,  # Set this to False
-                    #leverage=1.0, # Adjust as needed
-                    #extendedMarketHours=False, # Adjust based on data/strategy
-                    #dataNormalizationMode=DataNormalizationMode.Raw
+                    #fillForward=False,
+                    leverage=1.0
                     ) # Adjust as needed
         self.symbol = self.asset.Symbol
-        self.Debug("Initialize method completed.****************") # <-- ADDED DEBUG
+        self.Debug("Initialize method completed.****************")
 
     def on_data(self, data: Slice):
         """on_data event is the primary entry point for your algorithm. Each new data point will be pumped in here.
             Arguments:
                 data: Slice object keyed by symbol containing the stock data
         """
-        self.Debug(f"OnData called at {self.Time}===================") # <-- ADDED DEBUG
-
+        self.Debug(f"OnData called at {self.Time}===================")
         if data is None or data.Count == 0:
             self.Log(f"Time: {self.Time} - Slice is None or empty. Skipping.")
             return
-
-        # 2. Warm-up check
-        if self.IsWarmingUp:
-            self.Log(f"Time: {self.Time} - Algorithm is warming up. Indicator IsReady: {self.sma_spy.IsReady}. Skipping logic.")
-            # You can still access data during warm-up, e.g., to prime indicators:
-            # if data.Bars.ContainsKey(self.spy):
-            #     self.Log(f"Warming up with SPY bar: {data.Bars[self.spy].Close}")
-            return
-
         if not data.ContainsKey(self.symbol):
             self.Log(f"Time: {self.Time} - No data for {self.symbol} in current slice. Keys: {', '.join([str(k) for k in data.Keys]) if data.Keys else 'None'}")
             return
-
-        # At this point, we know data.Bars contains self.spy
         bar = data.Bars[self.symbol] 
         # Print the OHLC, Volume, and fill-forward status
         self.Debug(f"Time: {self.Time} | Ticker: {ticker} | O: {bar.Open} | H: {bar.High} | L: {bar.Low} | C: {bar.Close} | Vol: {bar.Volume}")
