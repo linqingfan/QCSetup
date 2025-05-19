@@ -176,9 +176,7 @@ def convert_ibkr_to_lean(input_csv_path, output_data_folder, ticker, market="hkf
         print("Skipping LEAN data file generation as input DataFrame is empty.")
         return # Exit if no data to process for LEAN files
 
-    #df['local_datetime_end'] = df['local_datetime_start'] + pd.Timedelta(minutes=1)
     df['local_datetime_end'] = df['local_datetime_start']
-    #print("Adjusted timestamps to represent END of bar for LEAN.")
 
     # Calculate timestamp in milliseconds since local midnight of the bar's ENDING day.
     midnight_local = df['local_datetime_end'].dt.normalize()
