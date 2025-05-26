@@ -1,0 +1,54 @@
+{
+  "usa": {
+    "security_type": "equity",
+    "timezone": "America/New_York",
+    "preMarketStart": "04:00:00",
+    "preMarketEnd": "09:30:00",
+    "marketStart": "09:30:00",
+    "marketEnd": "16:00:00",
+    "postMarketStart": "16:00:00",
+    "postMarketEnd": "20:00:00",
+    "weekendDays": [5, 6],
+    "scale_prices_by_10000": true
+  },
+  "sgx": {
+    "security_type": "equity",
+    "timezone": "Asia/Singapore",
+    "preMarketStart": "08:30:00",
+    "preMarketEnd": "09:00:00",
+    "marketStart": "09:00:00",
+    "marketEnd": "17:00:00",
+    "postMarketStart": "17:00:00",
+    "postMarketEnd": "17:06:00",
+    "weekendDays": [5, 6],
+    "scale_prices_by_10000": true
+  },
+  "hkfe": {
+    "security_type": "equity",
+    "timezone": "Asia/Hong_Kong",
+    "marketStart": "09:15:00",
+    "marketEnd": "16:00:00",
+    "preMarketStart": "09:00:00",
+    "preMarketEnd": "09:15:00",
+    "postMarketStart": "16:00:00",
+    "postMarketEnd": "16:10:00",
+    "weekendDays": [5, 6], 
+    "scale_prices_by_10000": true
+  },
+  "binance": {
+    "security_type": "crypto",
+    "timezone": "UTC",            
+    "marketStart": "00:00:00",    
+    "marketEnd": "23:59:59",      
+    "weekendDays": [],            
+    "scale_prices_by_10000": false
+  },
+  "oanda": {
+    "security_type": "forex",
+    "timezone": "UTC",
+    "marketStart": "00:00:00",    
+    "marketEnd": "23:59:59",      
+    "weekendDays": [5, 6],        
+    "scale_prices_by_10000": false
+  }
+}
