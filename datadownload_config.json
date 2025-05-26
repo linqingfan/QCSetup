@@ -1,26 +1,26 @@
 {
   "contract_details": {
-    "symbol": "ETH",
-    "secType": "CRYPTO",
-    "exchange": "PAXOS",
+    "symbol": "EUR",
+    "secType": "CASH",
+    "exchange": "IDEALPRO",
     "currency": "USD"
   },
   "instrument_timezone": "UTC",
   "date_range": {
-    "start_year": 2022,
+    "start_year": 2008,
     "start_month": 1,
     "start_day": 1,
     "end_year": 2025,
     "end_month": 5,
-    "end_day": 16
+    "end_day": 22
   },
   "api_settings": {
-    "ibkr_port": 4002,
+    "ibkr_port": 7497,
     "client_id": 10,
     "max_active_requests": 5,
-    "inter_request_delay_seconds": 12,
-    "use_rth": 0,
-    "what_to_show": "AGGTRADES",
+    "inter_request_delay_seconds": 5,
+    "use_rth": 1,
+    "what_to_show": "BID_ASK",
     "max_connect_retries": 5,
     "connect_retry_delay_seconds": 30,
     "max_request_retries": 3,
