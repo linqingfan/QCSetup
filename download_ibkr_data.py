@@ -1,7 +1,7 @@
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 from ibapi.contract import Contract
-from ibapi.common import BarData # Explicit import
+from ibapi.common import BarData
 import datetime
 import time
 import pandas as pd
@@ -9,18 +9,19 @@ import threading
 import pytz
 import os
 import json
+import traceback # Keep for general error reporting if needed, e.g., in CSV write
 
 # --- Global Variables ---
-bar_collection = {} # Stores data and status for each request ID
-# config will be loaded in main
+task_data_collection = {}  # Key: datetime.date object (target_end_date), Value: task dict
+req_id_to_task_map = {}    # Key: reqId, Value: {'task_key': datetime.date, 'part_name': 'bid'/'ask'/'main'}
+IS_BID_ASK_MODE = False    # Will be set in main based on WHAT_TO_SHOW_CONFIG
+app_instance = None        # To hold the IBapi instance for access in helper functions
+FILENAME_FOR_OUTPUT = "" # Will be set in main
 
 # --- Constants ---
 RETRYABLE_ERROR_CODES = {1100, 1101, 1102, 1300, 2103, 2105, 2107, 2150}
 REQUEST_SPECIFIC_RETRYABLE_ERROR_CODES = {
-    162,
-    321,
-    322,
-    366,
+    162, 321, 322, 366,
 }
 INFORMATIONAL_API_CODES = {
     2100, 2104, 2106, 2108, 2158, 2174, 10314
@@ -29,13 +30,13 @@ CSV_WRITE_ERROR_CODE = 999
 
 
 class IBapi(EWrapper, EClient):
-    def __init__(self, filename: str, expected_timezone_str: str = "America/New_York"):
+    def __init__(self, contract_sec_type: str, expected_timezone_str: str = "America/New_York"):
         EClient.__init__(self, self)
         self.req_id_counter = 0
-        self.filename = filename
+        self.contract_sec_type = contract_sec_type
         try:
             self.expected_timezone = pytz.timezone(expected_timezone_str)
-            print(f"IBapi initialized. Timestamps from IBKR without explicit TZ will be interpreted as '{self.expected_timezone}'.")
+            print(f"IBapi initialized. Timestamps from IBKR without explicit TZ will be interpreted as '{self.expected_timezone}'. Contract SecType: {self.contract_sec_type}")
         except pytz.exceptions.UnknownTimeZoneError:
             print(f"Warning: Unknown timezone '{expected_timezone_str}' in IBapi init. Defaulting to UTC.")
             self.expected_timezone = pytz.utc
@@ -65,97 +66,109 @@ class IBapi(EWrapper, EClient):
         t_parts = bar.date.split(' ')
         processed_datetime_utc = None
 
-        if len(t_parts) > 1 and ':' in t_parts[1]:
+        if len(t_parts) > 1 and ':' in t_parts[1]: # Has time component
             datetime_str_component = t_parts[0] + ' ' + t_parts[1]
             try:
                 naive_datetime = datetime.datetime.strptime(datetime_str_component, '%Y%m%d %H:%M:%S')
-                if len(t_parts) == 3:
+                if len(t_parts) == 3: # Has explicit timezone from IBKR
                     ibkr_timezone_str = t_parts[2]
                     try:
                         ibkr_timezone = pytz.timezone(ibkr_timezone_str)
                         localized_datetime = ibkr_timezone.localize(naive_datetime)
                         processed_datetime_utc = localized_datetime.astimezone(pytz.utc)
                     except pytz.exceptions.UnknownTimeZoneError:
-                        print(f"Warning (ReqId {reqId}): IBKR provided unknown timezone '{ibkr_timezone_str}' for '{t_str_original}'. Using expected_timezone '{self.expected_timezone}'.")
+                        # Fallback to expected_timezone if IBKR timezone is unknown
+                        print(f"Warning (ReqId {reqId}): Unknown timezone '{ibkr_timezone_str}' from IBKR. Using instrument's expected TZ '{self.expected_timezone}'.")
                         localized_datetime = self.expected_timezone.localize(naive_datetime)
                         processed_datetime_utc = localized_datetime.astimezone(pytz.utc)
-                else:
+                else: # No explicit timezone from IBKR, assume instrument's expected_timezone
                     localized_datetime = self.expected_timezone.localize(naive_datetime)
                     processed_datetime_utc = localized_datetime.astimezone(pytz.utc)
-            except ValueError as e:
-                print(f"Error (ReqId {reqId}): Parsing datetime string '{datetime_str_component}' from '{t_str_original}': {e}. Skipping bar.")
+            except ValueError:
+                print(f"Error (ReqId {reqId}): Parsing datetime '{t_str_original}'. Skipping.")
                 return
-        else:
+        else: # Date only, no time component (e.g. daily bars - though script aims for 1 min)
             try:
                 naive_datetime = datetime.datetime.strptime(t_parts[0], '%Y%m%d')
+                # For daily bars, assume it represents the start of the day in the instrument's timezone
                 localized_datetime = self.expected_timezone.localize(naive_datetime)
                 processed_datetime_utc = localized_datetime.astimezone(pytz.utc)
-            except ValueError as e:
-                print(f"Error (ReqId {reqId}): Parsing date string '{t_parts[0]}' from '{t_str_original}': {e}. Skipping bar.")
+            except ValueError:
+                print(f"Error (ReqId {reqId}): Parsing date '{t_str_original}'. Skipping.")
                 return
 
-        if processed_datetime_utc is None:
-            print(f"Warning (ReqId {reqId}): Could not process timestamp: {t_str_original}. Skipping bar.")
+        if processed_datetime_utc is None: return
+
+        if reqId in req_id_to_task_map:
+            map_entry = req_id_to_task_map[reqId]
+            task_key = map_entry['task_key']
+            part_name = map_entry['part_name']
+
+            if task_key in task_data_collection:
+                task = task_data_collection[task_key]
+                if part_name in task['parts']:
+                    part = task['parts'][part_name]
+                    
+                    is_crypto = (self.contract_sec_type == "CRYPTO")
+                    volume_val = 0
+                    if bar.volume is not None and str(bar.volume).lower() != 'nan' and bar.volume != -1:
+                        try:
+                            volume_val = float(bar.volume) if is_crypto else int(float(bar.volume))
+                        except ValueError:
+                            volume_val = 0.0 if is_crypto else 0 # Default on conversion error
+                    else: # None, NaN, or -1 volume
+                        volume_val = 0.0 if is_crypto else 0
+
+                    data_to_append = {
+                        'date': processed_datetime_utc, 'open': bar.open, 'high': bar.high,
+                        'low': bar.low, 'close': bar.close, 'volume': volume_val
+                    }
+                    part['data'].append(data_to_append)
+                else: print(f"Warning (ReqId {reqId}): Part '{part_name}' not in task '{task_key}'. Bar ignored.")
+            else: print(f"Warning (ReqId {reqId}): Task key '{task_key}' not in collection. Bar ignored.")
+        else: print(f"Warning: Received historicalData for unmapped reqId: {reqId}. Bar ignored.")
+
+    def historicalDataEnd(self, reqId: int, start_str_api: str, end_str_api: str):
+        if reqId not in req_id_to_task_map:
+            print(f"Warning: historicalDataEnd for unknown reqId: {reqId}.")
             return
 
-        if reqId in bar_collection:
-            data = {
-                'date': processed_datetime_utc,
-                'open': bar.open,
-                'high': bar.high,
-                'low': bar.low,
-                'close': bar.close,
-                'volume': int(bar.volume) if bar.volume is not None and str(bar.volume).lower() != 'nan' and bar.volume != -1 else 0
-            }
-            bar_collection[reqId]['data'].append(data)
-        else:
-            print(f"Warning: Received historicalData for unknown reqId: {reqId}. Bar ignored: {bar}")
+        map_entry = req_id_to_task_map[reqId]
+        task_key = map_entry['task_key']
+        part_name = map_entry['part_name']
 
-    def historicalDataEnd(self, reqId: int, start: str, end: str):
-        if reqId not in bar_collection:
-            print(f"Warning: historicalDataEnd received for unknown reqId: {reqId}. No action taken.")
+        if task_key not in task_data_collection:
+            print(f"Warning: historicalDataEnd for reqId {reqId}, task key '{task_key}' not in collection.")
             return
+        
+        task = task_data_collection[task_key]
+        target_end_date_display = task['end_date_obj_for_req'].strftime('%Y-%m-%d')
 
-        req_info = bar_collection[reqId]
-        if not req_info['data']:
-            print(f"No data received for ReqId {reqId} (Target End: {req_info['end_date_obj_for_req'].strftime('%Y-%m-%d')}, API Start: {start}, API End: {end}). Marking as complete (empty).")
-            req_info['status'] = "complete"
+        if part_name not in task['parts']:
+            print(f"Warning: historicalDataEnd for reqId {reqId}, part '{part_name}' not in task '{target_end_date_display}'.")
             return
+        
+        part = task['parts'][part_name]
+        if not part['data']:
+            print(f"No data received for {part_name.upper()} part (ReqId {reqId}, Task: {target_end_date_display}). Marking part as complete (empty).")
+        part['status'] = "complete"
+        print(f"{part_name.upper()} part (ReqId {reqId}) for task {target_end_date_display} processing complete.")
 
-        df = pd.DataFrame(req_info['data'])
+        # Update overall task status
+        if IS_BID_ASK_MODE:
+            if task['parts']['bid']['status'] == "complete" and task['parts']['ask']['status'] == "complete":
+                if task['overall_status'] not in ["failed_permanent", "complete_final"]: 
+                    task['overall_status'] = "ready_to_merge"
+                    print(f"Task {target_end_date_display} (BID_ASK): Both BID and ASK parts complete. Ready to merge.")
+        else: # Not BID_ASK mode
+            if task['parts']['main']['status'] == "complete":
+                if task['overall_status'] not in ["failed_permanent", "complete_final"]:
+                    task['overall_status'] = "ready_to_write"
+                    print(f"Task {target_end_date_display} (MAIN): Part complete. Ready to write.")
+        
+        if reqId in req_id_to_task_map:
+            del req_id_to_task_map[reqId]
 
-        if df.empty:
-            print(f"DataFrame empty after creation for ReqId {reqId}. Marking as complete.")
-            req_info['status'] = "complete"
-            return
-
-        if 'date' not in df.columns:
-            print(f"Error (ReqId {reqId}): 'date' column missing in DataFrame. Marking as failed_permanent.")
-            req_info['status'] = "failed_permanent"
-            req_info['last_error_code'] = "INTERNAL_DATA_FORMAT_ERROR"
-            return
-
-        df['date'] = pd.to_datetime(df['date'], utc=True)
-        df = df.sort_values('date')
-        df.drop_duplicates(subset=['date'], keep='first', inplace=True)
-        df['date'] = df['date'].dt.strftime('%Y-%m-%d %H:%M:%S')
-
-        file_exists = os.path.exists(self.filename)
-        write_header = not file_exists or os.path.getsize(self.filename) == 0
-
-        try:
-            df.to_csv(self.filename, mode='a', header=write_header, index=False)
-            target_end_date_str = req_info['end_date_obj_for_req'].strftime('%Y-%m-%d')
-            print(f"Data for ReqId {reqId} (target end {target_end_date_str}) successfully written to {self.filename}")
-        except Exception as e:
-            print(f"Error (ReqId {reqId}): Writing to CSV '{self.filename}': {e}. Marking for retry.")
-            req_info['status'] = "error_retry"
-            req_info['last_error_code'] = CSV_WRITE_ERROR_CODE
-            if 'retry_count' not in req_info: req_info['retry_count'] = 0
-            return
-
-        req_info['data'] = []
-        req_info['status'] = "complete"
 
     def error(self, reqId: int, errorCode: int, errorString: str, advancedOrderRejectJson: str = ""):
         adv_reject_str = f" AdvancedOrderReject: {advancedOrderRejectJson}" if advancedOrderRejectJson else ""
@@ -163,88 +176,181 @@ class IBapi(EWrapper, EClient):
 
         if errorCode in INFORMATIONAL_API_CODES:
             print(f"Informational/Warning (Code: {errorCode}, ReqId: {reqId}): {errorString}")
-            if errorCode == 10314 and reqId != -1 and reqId in bar_collection:
-                 print(f"Error 10314 for ReqId {reqId} (End Date/Time invalid). Marking as failed_permanent despite UTC format attempt.")
-                 bar_collection[reqId]['status'] = "failed_permanent"
-                 bar_collection[reqId]['last_error_code'] = errorCode
             return
 
-        print(log_msg)
+        print(log_msg) # Log non-informational errors
 
-        if errorCode in RETRYABLE_ERROR_CODES:
+        if errorCode in RETRYABLE_ERROR_CODES: # Typically connection-related
             if not self.connection_lost:
                 print(f"Connection error detected (Code: {errorCode}). Setting connection_lost = True.")
                 self.connection_lost = True
-                self.is_connected_event.clear()
-                self.next_valid_req_id_ready.clear()
+            return # Let main loop handle reconnection
+
+        current_task = None
+        part = None
+        part_name_for_error = None
+        task_key_for_error = None
+
+        if reqId != -1 and reqId in req_id_to_task_map:
+            map_entry = req_id_to_task_map[reqId]
+            task_key_for_error = map_entry['task_key']
+            part_name_for_error = map_entry['part_name']
+            if task_key_for_error in task_data_collection:
+                current_task = task_data_collection[task_key_for_error]
+                if part_name_for_error in current_task['parts']:
+                    part = current_task['parts'][part_name_for_error]
+        
+        # Handle "no data" as a form of completion for the part
+        if errorCode == 10314 or \
+           (errorCode == 162 and ("query returned no data" in errorString or ("HMDS query error" in errorString and "permissions" not in errorString.lower()))):
+            if part and current_task: # Ensure part and task context exists
+                print(f"Code {errorCode} (No data) for ReqId {reqId} ({part_name_for_error} part of task {task_key_for_error.strftime('%Y-%m-%d')}). Marking part as complete (empty).")
+                part['status'] = "complete"
+                part['last_error_code'] = errorCode
+                # Trigger overall status check, similar to historicalDataEnd
+                if IS_BID_ASK_MODE:
+                    if current_task['parts']['bid']['status'] == "complete" and current_task['parts']['ask']['status'] == "complete":
+                        if current_task['overall_status'] not in ["failed_permanent", "complete_final"]:
+                             current_task['overall_status'] = "ready_to_merge"
+                else:
+                    if current_task['parts']['main']['status'] == "complete":
+                         if current_task['overall_status'] not in ["failed_permanent", "complete_final"]:
+                            current_task['overall_status'] = "ready_to_write"
+                if reqId in req_id_to_task_map: del req_id_to_task_map[reqId] # Part is done
             else:
-                print(f"Connection error (Code: {errorCode}) received while already in connection_lost state.")
+                print(f"Code {errorCode} (No data) received for ReqId {reqId}, but no associated task/part found in map. Error: {errorString}")
             return
 
-        if reqId != -1 and reqId in bar_collection:
-            req_info = bar_collection[reqId]
-            if req_info['status'] in ["complete", "failed_permanent"]:
-                print(f"Error {errorCode} for already settled ReqId {reqId} ({req_info['status']}). Ignoring for status change.")
+        if part and current_task: # Request-specific error for an active part
+            if part['status'] in ["complete", "failed_permanent"] or current_task['overall_status'] in ["complete_final", "failed_permanent"]:
+                print(f"Error {errorCode} for already settled part/task. Ignoring.")
                 return
 
-            if errorCode in REQUEST_SPECIFIC_RETRYABLE_ERROR_CODES:
-                print(f"Request-specific retryable error for ReqId {reqId} (Code: {errorCode}). Marking for retry.")
-                req_info['status'] = "error_retry"
-            elif errorCode == 200:
-                 print(f"Error 200 for ReqId {reqId}: No security definition. Marking as failed_permanent.")
-                 req_info['status'] = "failed_permanent"
-            # Error 10299: Expected what to show is AGGTRADES...
-            elif errorCode == 10299:
-                 print(f"Error 10299 for ReqId {reqId}: Incorrect 'whatToShow'. Expected AGGTRADES. Marking as failed_permanent (config change needed).")
-                 req_info['status'] = "failed_permanent" # Needs config change, not just retry
-            elif errorCode == 162 and "Historical Market Data Service error message:No market data permissions" in errorString:
-                print(f"Error 162 (No market data permissions) for ReqId {reqId}. Marking as failed_permanent.")
-                req_info['status'] = "failed_permanent"
-            else:
-                print(f"Unhandled error for active ReqId {reqId} (Code: {errorCode}). Marking as failed_permanent.")
-                req_info['status'] = "failed_permanent"
-
-            req_info['last_error_code'] = errorCode
-            if 'retry_count' not in req_info and req_info['status'] == "error_retry":
-                req_info['retry_count'] = 0
+            new_part_status = part['status']
+            if errorCode in REQUEST_SPECIFIC_RETRYABLE_ERROR_CODES: # e.g. pacing violation, temporary issue
+                if errorCode == 162 and "no market data permissions" in errorString.lower(): # 162 can be permanent if permissions
+                    new_part_status = "failed_permanent"
+                else:
+                    new_part_status = "error_retry"
+            elif errorCode == 200 or errorCode == 10299: # No security def / Invalid whatToShow / Bad contract
+                new_part_status = "failed_permanent"
+            else: # Other unhandled errors specific to this part are treated as permanent
+                new_part_status = "failed_permanent" 
+            
+            part['status'] = new_part_status
+            part['last_error_code'] = errorCode
+            if new_part_status == "error_retry":
+                 part.setdefault('retry_count', 0) # Ensure retry_count exists
+            
+            if new_part_status == "failed_permanent":
+                current_task['overall_status'] = "failed_permanent"
+                print(f"Overall task {task_key_for_error.strftime('%Y-%m-%d')} marked as failed_permanent due to {part_name_for_error} part failure (Code: {errorCode}).")
+            
+            # Clean up req_id if part is not going to be retried by this specific error handling
+            if new_part_status != "error_retry" and reqId in req_id_to_task_map: 
+                 del req_id_to_task_map[reqId]
             return
+        
+        # General errors not tied to a specific request (reqId == -1) or unmapped reqId
+        if reqId == -1: print(f"General system message (Code: {errorCode}). Not connection related.")
+        # else: (error for a reqId not in map, already logged by log_msg)
 
-        if reqId == -1:
-            print(f"General system message (Code: {errorCode}). Not a connection error, informational, or request-specific.")
 
 def load_config_from_path(config_path="datadownload_config.json"):
     try:
-        with open(config_path, 'r') as f:
-            config_data = json.load(f)
+        with open(config_path, 'r') as f: config_data = json.load(f)
         print(f"Configuration loaded from {config_path}")
         return config_data
-    except FileNotFoundError:
-        print(f"Error: Configuration file '{config_path}' not found. Please create it. Exiting.")
-        exit(1)
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON from '{config_path}': {e}. Exiting.")
-        exit(1)
     except Exception as e:
-        print(f"An unexpected error occurred while loading '{config_path}': {e}. Exiting.")
-        exit(1)
+        print(f"Error loading config '{config_path}': {e}. Exiting."); exit(1)
 
-# MODIFIED: Added what_to_show_param
-def request_historical_data(app: IBapi, contract_obj: Contract, end_date_time_api_str: str, req_id: int, use_rth_param: int, what_to_show_param: str):
-    print(f"Requesting historical data for ReqId: {req_id}, Contract: {contract_obj.symbol}, API EndDateTime (UTC): '{end_date_time_api_str}', UseRTH: {use_rth_param}, WhatToShow: {what_to_show_param}")
-    app.reqHistoricalData(reqId=req_id,
-                          contract=contract_obj,
-                          endDateTime=end_date_time_api_str,
-                          durationStr="1 W",
-                          barSizeSetting="1 min",
-                          whatToShow=what_to_show_param, # MODIFIED: Use passed parameter
-                          useRTH=use_rth_param,
-                          formatDate=1,
-                          keepUpToDate=False,
-                          chartOptions=[])
+def request_historical_data_for_part(app_ref: IBapi, contract_obj: Contract, end_date_time_api_str: str, req_id_val: int, use_rth_param: int, what_to_show_for_part: str):
+    print(f"Requesting data: ReqId={req_id_val}, Contract={contract_obj.symbol}, EndDateTime(UTC)='{end_date_time_api_str}', UseRTH={use_rth_param}, WhatToShow={what_to_show_for_part}")
+    app_ref.reqHistoricalData(reqId=req_id_val, contract=contract_obj, endDateTime=end_date_time_api_str,
+                              durationStr="1 W", barSizeSetting="1 min", whatToShow=what_to_show_for_part,
+                              useRTH=use_rth_param, formatDate=1, keepUpToDate=False, chartOptions=[])
+
+def process_and_write_task_data(task_key, task_config, filename_to_write, is_bid_ask):
+    global task_data_collection
+    task = task_data_collection[task_key]
+
+    df_to_write = None
+    if is_bid_ask:
+        if task['parts']['bid']['status'] != "complete" or task['parts']['ask']['status'] != "complete":
+            print(f"Task {task_key.strftime('%Y-%m-%d')}: BID/ASK parts not ready for merge. Skipping write.")
+            return False 
+
+        df_bid = pd.DataFrame(task['parts']['bid']['data'])
+        df_ask = pd.DataFrame(task['parts']['ask']['data'])
+
+        if df_bid.empty and df_ask.empty:
+            print(f"Task {task_key.strftime('%Y-%m-%d')}: Both BID and ASK data are empty. Nothing to write.")
+            task['overall_status'] = "complete_final"
+            task['parts']['bid']['data'] = [] # Clear memory
+            task['parts']['ask']['data'] = [] # Clear memory
+            return True 
+
+        if not df_bid.empty:
+            df_bid.rename(columns={'open': 'bid_open', 'high': 'bid_high', 'low': 'bid_low', 'close': 'bid_close', 'volume': 'bid_volume'}, inplace=True)
+        if not df_ask.empty:
+            df_ask.rename(columns={'open': 'ask_open', 'high': 'ask_high', 'low': 'ask_low', 'close': 'ask_close', 'volume': 'ask_volume'}, inplace=True)
+
+        if not df_bid.empty and not df_ask.empty:
+            df_to_write = pd.merge(df_bid, df_ask, on='date', how='outer')
+        elif not df_bid.empty:
+            df_to_write = df_bid
+            for col in ['ask_open', 'ask_high', 'ask_low', 'ask_close', 'ask_volume']:
+                if col not in df_to_write.columns: df_to_write[col] = pd.NA # Use pandas NA for missing float/int data
+        elif not df_ask.empty:
+            df_to_write = df_ask
+            for col in ['bid_open', 'bid_high', 'bid_low', 'bid_close', 'bid_volume']:
+                if col not in df_to_write.columns: df_to_write[col] = pd.NA
+        
+        task['parts']['bid']['data'] = [] 
+        task['parts']['ask']['data'] = []
+
+    else: # Not BID_ASK (main part)
+        if task['parts']['main']['status'] != "complete":
+            print(f"Task {task_key.strftime('%Y-%m-%d')}: MAIN part not ready for write. Skipping.")
+            return False
+        
+        df_to_write = pd.DataFrame(task['parts']['main']['data'])
+        task['parts']['main']['data'] = [] 
+
+    if df_to_write is None or df_to_write.empty:
+        print(f"Task {task_key.strftime('%Y-%m-%d')}: No data to write after processing.")
+        task['overall_status'] = "complete_final"
+        return True
+
+    if 'date' not in df_to_write.columns:
+        print(f"Error Task {task_key.strftime('%Y-%m-%d')}: 'date' column missing. Cannot write.")
+        task['overall_status'] = "failed_permanent" 
+        return True 
+
+    df_to_write['date'] = pd.to_datetime(df_to_write['date'], utc=True)
+    df_to_write.sort_values('date', inplace=True)
+    df_to_write.drop_duplicates(subset=['date'], keep='first', inplace=True)
+    # Format date as string for CSV after all datetime operations
+    df_to_write['date'] = df_to_write['date'].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+    file_exists = os.path.exists(filename_to_write)
+    # Header should be written if file doesn't exist OR if it exists but is empty
+    write_header = not file_exists or (file_exists and os.path.getsize(filename_to_write) == 0)
+    try:
+        df_to_write.to_csv(filename_to_write, mode='a', header=write_header, index=False)
+        print(f"Data for task {task_key.strftime('%Y-%m-%d')} successfully written to {filename_to_write}")
+        task['overall_status'] = "complete_final"
+        return True
+    except Exception as e:
+        print(f"Error writing task {task_key.strftime('%Y-%m-%d')} to CSV '{filename_to_write}': {e}.")
+        task['overall_status'] = "error_writing_csv" 
+        # traceback.print_exc() # Optionally uncomment for more detail on CSV write errors
+        return False
 
 def main():
-    config = load_config_from_path()
+    global IS_BID_ASK_MODE, task_data_collection, req_id_to_task_map, app_instance, FILENAME_FOR_OUTPUT
 
+    config = load_config_from_path()
     contract_cfg = config.get("contract_details", {})
     instrument_tz_str = config.get("instrument_timezone", "America/New_York")
 
@@ -253,244 +359,305 @@ def main():
     contract.secType = contract_cfg.get("secType")
     contract.exchange = contract_cfg.get("exchange")
     contract.currency = contract_cfg.get("currency")
+    contract.primaryExchange = contract_cfg.get("primary_exchange", "") # Optional, use if needed
 
     if not all([contract.symbol, contract.secType, contract.exchange, contract.currency]):
-        print("Error: Essential contract details (symbol, secType, exchange, currency) missing in config.json. Exiting.")
-        return
-    print(f"Contract to download: {contract.symbol} ({contract.secType}) on {contract.exchange} in {contract.currency}")
-    print(f"Using instrument timezone for date processing: {instrument_tz_str}")
+        print("Error: Essential contract details (symbol, secType, exchange, currency) missing in config. Exiting."); return
+    print(f"Contract: {contract.symbol} ({contract.secType}) on {contract.exchange} in {contract.currency}")
 
-    date_range_cfg = config.get("date_range", {})
     api_cfg = config.get("api_settings", {})
-    output_cfg = config.get("output", {})
-
     IBKR_PORT = api_cfg.get("ibkr_port", 7497)
     CLIENT_ID = api_cfg.get("client_id", 1)
-    MAX_ACTIVE_REQUESTS = api_cfg.get("max_active_requests", 5)
-    INTER_REQUEST_DELAY = api_cfg.get("inter_request_delay_seconds", 3)
+    MAX_ACTIVE_REQUESTS = api_cfg.get("max_active_requests", 5) 
+    INTER_REQUEST_DELAY = api_cfg.get("inter_request_delay_seconds", 3) 
     MAX_CONNECT_RETRIES = api_cfg.get("max_connect_retries", 5)
     CONNECT_RETRY_DELAY = api_cfg.get("connect_retry_delay_seconds", 30)
-    MAX_REQUEST_RETRIES = api_cfg.get("max_request_retries", 3)
+    MAX_PART_RETRIES = api_cfg.get("max_request_retries", 3) 
     REQUEST_RETRY_DELAY = api_cfg.get("request_retry_delay_seconds", 20)
-
-    USE_RTH_CONFIG = api_cfg.get("use_rth", 1)
-    if USE_RTH_CONFIG not in [0, 1]:
-        print(f"Warning: Invalid 'use_rth' value '{USE_RTH_CONFIG}' in config. Defaulting to 1 (RTH data).")
-        USE_RTH_CONFIG = 1
-    print(f"Historical data will be requested with useRTH = {USE_RTH_CONFIG} (0=all hours, 1=regular trading hours only)")
-
-    # MODIFIED: Read what_to_show from config, default to "TRADES"
+    USE_RTH_CONFIG = api_cfg.get("use_rth", 1) # 1 for RTH, 0 for all hours
     WHAT_TO_SHOW_CONFIG = api_cfg.get("what_to_show", "TRADES").upper()
-    valid_what_to_show = ["TRADES", "MIDPOINT", "BID", "ASK", "BID_ASK", "AGGTRADES", "HISTORICAL_VOLATILITY", "OPTION_IMPLIED_VOLATILITY", "YIELD_BID", "YIELD_ASK", "YIELD_LAST", "YIELD_BID_ASK"]
-    if WHAT_TO_SHOW_CONFIG not in valid_what_to_show:
-        print(f"Warning: Invalid 'what_to_show' value '{WHAT_TO_SHOW_CONFIG}' in config. Defaulting to TRADES.")
-        WHAT_TO_SHOW_CONFIG = "TRADES"
-    print(f"Historical data will be requested with whatToShow = {WHAT_TO_SHOW_CONFIG}")
+    IS_BID_ASK_MODE = (WHAT_TO_SHOW_CONFIG == "BID_ASK")
+    print(f"WhatToShow: {WHAT_TO_SHOW_CONFIG}, Is BID_ASK Mode: {IS_BID_ASK_MODE}, UseRTH: {USE_RTH_CONFIG}")
 
-
+    date_range_cfg = config.get("date_range", {})
     today = datetime.date.today()
-    default_start_year = today.year - 1 if today.month == 1 and today.day == 1 else today.year
-
+    # Default start date to beginning of current year if not specified
+    default_start_year = today.year - 1 if today.month == 1 and today.day == 1 else today.year # Sensible default
     overall_start_date = datetime.date(
         date_range_cfg.get("start_year", default_start_year),
         date_range_cfg.get("start_month", 1),
         date_range_cfg.get("start_day", 1)
     )
+    # Default end date to today if not specified
     overall_end_date = datetime.date(
         date_range_cfg.get("end_year", today.year),
         date_range_cfg.get("end_month", today.month),
         date_range_cfg.get("end_day", today.day)
     )
-    print(f"Overall date range for download: {overall_start_date.strftime('%Y-%m-%d')} to {overall_end_date.strftime('%Y-%m-%d')}")
+    print(f"Overall date range: {overall_start_date} to {overall_end_date}")
 
-
+    output_cfg = config.get("output", {})
     filename_template = output_cfg.get("filename_template", "{symbol}_1min_{start_year}-{end_year}_utc.csv")
-    filename = filename_template.format(
-        symbol=contract.symbol.replace("/", "_"),
-        start_year=overall_start_date.year,
-        end_year=overall_end_date.year
-    )
-    print(f"Data will be saved to: {filename} (timestamps in UTC)")
+    symbol_for_file = (contract.symbol + contract.currency) if contract.secType == "CASH" else contract.symbol
+    sanitized_symbol = symbol_for_file.replace("/", "_").replace(" ", "_") # Make symbol filename-safe
+    
+    # Use overall_start_date and overall_end_date for filename consistency across runs
+    base_filename, ext = os.path.splitext(filename_template.format(
+        symbol=sanitized_symbol, 
+        start_year=overall_start_date.year, 
+        end_year=overall_end_date.year 
+    ))
+    suffix = "_quote" if WHAT_TO_SHOW_CONFIG in ["BID_ASK", "BID", "ASK", "MIDPOINT"] else "_trade" 
+    FILENAME_FOR_OUTPUT = f"{base_filename}{suffix}{ext}"
+    print(f"Output file will be: {FILENAME_FOR_OUTPUT}")
 
     current_run_start_date = overall_start_date
-    if os.path.exists(filename):
+    # Resume logic
+    if os.path.exists(FILENAME_FOR_OUTPUT) and os.path.getsize(FILENAME_FOR_OUTPUT) > 0:
         try:
-            if os.path.getsize(filename) > 0:
-                df_all_dates = pd.read_csv(filename, usecols=['date'])
-                if not df_all_dates.empty and 'date' in df_all_dates.columns:
-                    df_all_dates['date'] = pd.to_datetime(df_all_dates['date'], errors='coerce', utc=True)
-                    df_all_dates.dropna(subset=['date'], inplace=True)
-                    if not df_all_dates.empty:
-                        last_recorded_datetime_utc = df_all_dates['date'].max()
-                        if pd.notna(last_recorded_datetime_utc):
-                            resume_from_date = last_recorded_datetime_utc.date() + datetime.timedelta(days=1)
-                            if resume_from_date > current_run_start_date:
-                                print(f"Resuming download. Last data in {filename} up to {last_recorded_datetime_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}.")
-                                current_run_start_date = resume_from_date
-                                print(f"New effective start date for this run: {current_run_start_date}")
-                    else: print(f"No valid dates found in existing {filename} after parsing. Using original start_date.")
-            else: print(f"{filename} exists but is empty. Using original start_date: {current_run_start_date}")
-        except pd.errors.EmptyDataError: print(f"Warning: {filename} is empty. Using original start_date: {current_run_start_date}")
-        except KeyError: print(f"Warning: 'date' column not found in {filename}. Cannot resume. Using original start_date.")
-        except Exception as e: print(f"Warning: Error reading existing {filename} for resume: {e}. Using original start_date.")
+            df_existing = pd.read_csv(FILENAME_FOR_OUTPUT, usecols=['date'])
+            if not df_existing.empty and 'date' in df_existing.columns:
+                valid_dates = df_existing['date'].dropna()
+                if not valid_dates.empty:
+                    last_date_str = valid_dates.iloc[-1]
+                    last_recorded_dt = pd.to_datetime(last_date_str, utc=True) # Assume dates in CSV are UTC
+                    resume_date_candidate = (last_recorded_dt.date() + datetime.timedelta(days=1))
+                    # Only update if resume_date_candidate is later than configured overall_start_date
+                    if resume_date_candidate > current_run_start_date: 
+                        current_run_start_date = resume_date_candidate
+                        print(f"Resuming from: {current_run_start_date}")
+                else:
+                    print(f"Warning: Existing file '{FILENAME_FOR_OUTPUT}' has 'date' column but no valid date entries. Starting from configured start_date.")
+            else:
+                 print(f"Warning: Existing file '{FILENAME_FOR_OUTPUT}' is not empty but lacks a 'date' column or is unreadable as CSV. Starting from configured start_date.")
+        except Exception as e:
+            print(f"Warning: Error reading existing file '{FILENAME_FOR_OUTPUT}' for resume: {e}. Starting from configured start_date.")
+            # traceback.print_exc() # Optionally uncomment for more detail on resume read errors
 
     if current_run_start_date > overall_end_date:
-        print(f"Effective start date {current_run_start_date} is after overall end date {overall_end_date}. No new data to download.")
-        return
+        print(f"All data from {overall_start_date} up to {overall_end_date} appears to be downloaded (resume date {current_run_start_date}). Exiting."); return
 
-    app = IBapi(filename=filename, expected_timezone_str=instrument_tz_str)
+    # Initialize tasks based on the (potentially updated) current_run_start_date
+    date_iter = overall_end_date 
+    initial_tasks_dates = []
+    while date_iter >= current_run_start_date:
+        initial_tasks_dates.append(date_iter)
+        date_iter -= datetime.timedelta(days=7) # Request 1 week at a time
+    initial_tasks_dates.reverse() # Process older dates first
+
+    for task_date_key in initial_tasks_dates:
+        task_data_collection[task_date_key] = {
+            'end_date_obj_for_req': task_date_key, # This is the *end date* for the 1W request
+            'overall_status': "pending_initiation",
+            'parts': {}
+        }
+        if IS_BID_ASK_MODE:
+            task_data_collection[task_date_key]['parts']['bid'] = {'req_id': None, 'data': [], 'status': "pending_initiation", 'retry_count': 0, 'last_error_code': None}
+            task_data_collection[task_date_key]['parts']['ask'] = {'req_id': None, 'data': [], 'status': "pending_initiation", 'retry_count': 0, 'last_error_code': None}
+        else:
+            task_data_collection[task_date_key]['parts']['main'] = {'req_id': None, 'data': [], 'status': "pending_initiation", 'retry_count': 0, 'last_error_code': None}
+    
+    if not task_data_collection:
+        print(f"No tasks to process. Effective start date {current_run_start_date}, overall end date {overall_end_date}. Exiting."); return
+    print(f"Initialized {len(task_data_collection)} tasks, to fetch data from effective start {current_run_start_date} up to {overall_end_date}.")
+
+    app_instance = IBapi(contract_sec_type=contract.secType, expected_timezone_str=instrument_tz_str)
     api_thread = None
 
+    # Connection Loop
     connected_successfully = False
     for attempt in range(MAX_CONNECT_RETRIES):
-        print(f"Attempting to connect to IBKR (Port: {IBKR_PORT}, ClientID: {CLIENT_ID}) (Attempt {attempt + 1}/{MAX_CONNECT_RETRIES})...")
-        app.is_connected_event.clear(); app.next_valid_req_id_ready.clear(); app.connection_lost = False
-        if app.isConnected(): app.disconnect(); time.sleep(0.3)
-        if api_thread and api_thread.is_alive(): api_thread.join(timeout=5)
-
-        app.connect('127.0.0.1', IBKR_PORT, clientId=CLIENT_ID)
-        api_thread = threading.Thread(target=app.run, daemon=True, name="IBAPIThread")
+        print(f"Connection attempt {attempt + 1}/{MAX_CONNECT_RETRIES}...")
+        if app_instance.isConnected(): app_instance.disconnect(); time.sleep(0.5) # Ensure clean disconnect
+        if api_thread and api_thread.is_alive(): api_thread.join(timeout=5) # Wait for old thread
+        
+        app_instance.is_connected_event.clear()
+        app_instance.next_valid_req_id_ready.clear()
+        app_instance.connection_lost = False # Reset flag
+        
+        app_instance.connect('127.0.0.1', IBKR_PORT, clientId=CLIENT_ID)
+        api_thread = threading.Thread(target=app_instance.run, daemon=True, name="IBAPIThread")
         api_thread.start()
-
-        if app.is_connected_event.wait(timeout=20) and app.next_valid_req_id_ready.wait(timeout=15):
-            print("Successfully connected and nextValidId received.")
-            connected_successfully = True; break
+        
+        if app_instance.is_connected_event.wait(timeout=20) and app_instance.next_valid_req_id_ready.wait(timeout=15):
+            print("Successfully connected."); connected_successfully = True; break
         else:
-            print("Failed to connect or receive nextValidId within timeout.")
-            if app.isConnected(): app.disconnect()
-            if api_thread and api_thread.is_alive(): api_thread.join(timeout=5)
-            if attempt < MAX_CONNECT_RETRIES - 1: print(f"Retrying connection in {CONNECT_RETRY_DELAY} seconds..."); time.sleep(CONNECT_RETRY_DELAY)
-            else: print("Max connection retries reached. Exiting."); return
-    if not connected_successfully: return
-
-    tasks_to_process = []
-    temp_date_iterator = overall_end_date
-    while temp_date_iterator >= current_run_start_date:
-        tasks_to_process.append(temp_date_iterator)
-        temp_date_iterator -= datetime.timedelta(days=7) # 1 week duration per request
-    tasks_to_process.reverse()
-    if not tasks_to_process and current_run_start_date <= overall_end_date: # Ensure at least one task if range is valid
-        tasks_to_process.append(overall_end_date)
-    print(f"Generated {len(tasks_to_process)} weekly tasks from {current_run_start_date} to {overall_end_date}.")
+            print("Connection failed.")
+            if app_instance.isConnected(): app_instance.disconnect() # Disconnect if partially connected
+            if api_thread.is_alive(): api_thread.join(timeout=5)
+            if attempt < MAX_CONNECT_RETRIES - 1: 
+                print(f"Retrying connection in {CONNECT_RETRY_DELAY} seconds...")
+                time.sleep(CONNECT_RETRY_DELAY)
+            
+    if not connected_successfully: 
+        print("Max connection retries reached. Exiting."); return
 
     try:
         while True:
-            if app.connection_lost:
-                print("Connection lost. Attempting to reconnect...")
-                if app.isConnected(): app.disconnect(); time.sleep(0.3)
-                if api_thread and api_thread.is_alive(): api_thread.join(timeout=10)
-                reconnected = False
-                for rec_attempt in range(MAX_CONNECT_RETRIES):
-                    print(f"Reconnect attempt {rec_attempt + 1}/{MAX_CONNECT_RETRIES}...")
-                    app.is_connected_event.clear(); app.next_valid_req_id_ready.clear(); app.connection_lost = False
-                    app.connect('127.0.0.1', IBKR_PORT, clientId=CLIENT_ID)
-                    api_thread = threading.Thread(target=app.run, daemon=True, name="IBAPIThread-Reconnect")
-                    api_thread.start()
-                    if app.is_connected_event.wait(timeout=20) and app.next_valid_req_id_ready.wait(timeout=15):
-                        print("Successfully reconnected."); reconnected = True; break
-                    else:
-                        print("Reconnect attempt failed.")
-                        if app.isConnected(): app.disconnect()
-                        if api_thread and api_thread.is_alive(): api_thread.join(timeout=10)
-                        if rec_attempt < MAX_CONNECT_RETRIES - 1: time.sleep(CONNECT_RETRY_DELAY)
-                if not reconnected: print("Failed to reconnect after multiple attempts. Exiting processing loop."); break
+            if app_instance.connection_lost: 
+                print("Connection lost. Attempting reconnect...")
+                # Full reconnect logic similar to initial connection
+                if app_instance.isConnected(): app_instance.disconnect(); time.sleep(0.5)
+                if api_thread and api_thread.is_alive(): api_thread.join(timeout=5)
+                
+                app_instance.is_connected_event.clear()
+                app_instance.next_valid_req_id_ready.clear()
+                app_instance.connection_lost = False
+                
+                # Consider incrementing CLIENT_ID or using a different one if issues persist with reconnects
+                app_instance.connect('127.0.0.1', IBKR_PORT, clientId=CLIENT_ID) 
+                api_thread = threading.Thread(target=app_instance.run, daemon=True, name="IBAPIThread-Reconnect")
+                api_thread.start()
+                
+                if app_instance.is_connected_event.wait(timeout=20) and app_instance.next_valid_req_id_ready.wait(timeout=15):
+                    print("Reconnected successfully.")
+                else:
+                    print("Reconnect failed. Exiting to prevent further issues.")
+                    if app_instance.isConnected(): app_instance.disconnect()
+                    if api_thread.is_alive(): api_thread.join(timeout=5)
+                    break # Exit main loop if reconnect fails
 
-            active_requests_count = sum(1 for req_info in bar_collection.values() if req_info.get('status') == "incomplete")
+            # 1. Process completed tasks (Merge/Write)
+            for task_key, task in list(task_data_collection.items()): # list() for safe modification
+                if task['overall_status'] == "ready_to_merge" or task['overall_status'] == "ready_to_write":
+                    # print(f"Processing task {task_key.strftime('%Y-%m-%d')} for writing/merging...") # Optional: less verbose
+                    task['overall_status'] = "processing_csv" 
+                    process_and_write_task_data(task_key, task, FILENAME_FOR_OUTPUT, IS_BID_ASK_MODE)
 
-            for r_id in list(bar_collection.keys()): # Iterate over copy of keys for safe removal/modification
-                req_info = bar_collection.get(r_id)
-                if req_info and req_info['status'] == "error_retry":
-                    if active_requests_count < MAX_ACTIVE_REQUESTS:
-                        if req_info.get('retry_count', 0) < MAX_REQUEST_RETRIES:
-                            req_info['retry_count'] = req_info.get('retry_count', 0) + 1
-                            error_code = req_info.get('last_error_code', 'N/A')
-                            original_end_date_obj = req_info['end_date_obj_for_req']
+            active_req_count = len(req_id_to_task_map)
 
-                            print(f"Retrying request {r_id} (Attempt {req_info['retry_count']}/{MAX_REQUEST_RETRIES}), Target EndDate: {original_end_date_obj.strftime('%Y-%m-%d')}, LastError: {error_code}")
-                            req_info['status'] = "incomplete"
+            # 2. Retry logic for parts with "error_retry" status
+            if active_req_count < MAX_ACTIVE_REQUESTS: # Only attempt retries if slots are available
+                for task_key, task in task_data_collection.items():
+                    if task['overall_status'] in ["complete_final", "failed_permanent", "processing_csv"]: continue
+                    if app_instance.connection_lost: break # Check connection before processing parts of a task
+                    
+                    for part_name, part_details in task['parts'].items():
+                        if part_details['status'] == "error_retry" and active_req_count < MAX_ACTIVE_REQUESTS:
+                            if part_details['retry_count'] < MAX_PART_RETRIES:
+                                part_details['retry_count'] += 1
+                                print(f"Retrying {part_name} for task {task_key.strftime('%Y-%m-%d')} (Attempt {part_details['retry_count']}/{MAX_PART_RETRIES}) after {REQUEST_RETRY_DELAY}s delay.")
+                                time.sleep(REQUEST_RETRY_DELAY) # Delay before retry
 
-                            naive_dt_local_retry = datetime.datetime.combine(original_end_date_obj, datetime.time(23, 59, 59))
-                            localized_dt_local_retry = app.expected_timezone.localize(naive_dt_local_retry)
-                            dt_utc_retry = localized_dt_local_retry.astimezone(pytz.utc)
-                            # Using space and " UTC" for clarity with API
-                            end_date_str_for_api_retry_utc = dt_utc_retry.strftime("%Y%m%d %H:%M:%S UTC")
+                                new_req_id = app_instance.get_next_req_id()
+                                if new_req_id == -1: app_instance.connection_lost = True; break 
+                                
+                                part_details['req_id'] = new_req_id
+                                part_details['status'] = "incomplete" # Reset status
+                                part_details['data'] = [] # Clear previous (potentially partial/error) data
+                                req_id_to_task_map[new_req_id] = {'task_key': task_key, 'part_name': part_name}
+                                
+                                end_date_obj = task['end_date_obj_for_req']
+                                # API expects endDateTime in instrument's local timezone (or UTC if specified)
+                                naive_dt_local = datetime.datetime.combine(end_date_obj, datetime.time(23, 59, 59))
+                                localized_dt_for_api = app_instance.expected_timezone.localize(naive_dt_local)
+                                # Convert to UTC for the "YYYYMMDD HH:MM:SS UCT" format if instrument_timezone is not UTC
+                                # If instrument_timezone IS UTC, this astimezone does nothing.
+                                dt_utc_for_api_str = localized_dt_for_api.astimezone(pytz.utc).strftime("%Y%m%d %H:%M:%S UTC")
+                                
+                                what_to_show_for_this_part = part_name.upper() if IS_BID_ASK_MODE else WHAT_TO_SHOW_CONFIG
+                                request_historical_data_for_part(app_instance, contract, dt_utc_for_api_str, new_req_id, USE_RTH_CONFIG, what_to_show_for_this_part)
+                                active_req_count += 1
+                                time.sleep(INTER_REQUEST_DELAY) # Pace subsequent new requests
+                            else:
+                                print(f"Max retries for {part_name} of task {task_key.strftime('%Y-%m-%d')} reached. Marking part and task failed.")
+                                part_details['status'] = "failed_permanent"
+                                task['overall_status'] = "failed_permanent" # Cascade failure to task
+                                if part_details['req_id'] and part_details['req_id'] in req_id_to_task_map:
+                                    del req_id_to_task_map[part_details['req_id']] # Clean up old req_id if any
+                        if active_req_count >= MAX_ACTIVE_REQUESTS or app_instance.connection_lost: break
+                    if active_req_count >= MAX_ACTIVE_REQUESTS or app_instance.connection_lost: break
+            if app_instance.connection_lost: continue # Re-check connection at start of main while loop
 
-                            req_info['data'] = []
-                            # MODIFIED: Pass USE_RTH_CONFIG and WHAT_TO_SHOW_CONFIG
-                            request_historical_data(app, contract, end_date_str_for_api_retry_utc, r_id, USE_RTH_CONFIG, WHAT_TO_SHOW_CONFIG)
-                            active_requests_count += 1
-                            time.sleep(REQUEST_RETRY_DELAY) # Use specific retry delay
-                        else:
-                            print(f"Max retries for ReqId {r_id} reached. Marking as failed_permanent.")
-                            req_info['status'] = "failed_permanent"
-                    else: break # Max active requests reached, stop processing retries for now
+            # 3. Initiate new requests for "pending_initiation" parts
+            if active_req_count < MAX_ACTIVE_REQUESTS: # Only initiate if slots are available
+                sorted_task_keys = sorted(task_data_collection.keys()) # Process older tasks first
+                for task_key in sorted_task_keys:
+                    task = task_data_collection[task_key]
+                    if task['overall_status'] in ["complete_final", "failed_permanent", "processing_csv", "ready_to_merge", "ready_to_write"]:
+                        continue
+                    if app_instance.connection_lost: break
 
-            active_requests_count = sum(1 for req_info in bar_collection.values() if req_info.get('status') == "incomplete")
+                    for part_name, part_details in task['parts'].items():
+                        if part_details['status'] == "pending_initiation" and active_req_count < MAX_ACTIVE_REQUESTS:
+                            # print(f"Initiating {part_name} for task {task_key.strftime('%Y-%m-%d')}") # Optional: less verbose
+                            new_req_id = app_instance.get_next_req_id()
+                            if new_req_id == -1: app_instance.connection_lost = True; break 
+                            
+                            part_details['req_id'] = new_req_id
+                            part_details['status'] = "incomplete" # Mark as request sent
+                            req_id_to_task_map[new_req_id] = {'task_key': task_key, 'part_name': part_name}
 
-            while tasks_to_process and active_requests_count < MAX_ACTIVE_REQUESTS:
-                date_to_fetch_end = tasks_to_process.pop(0)
-                current_req_id = app.get_next_req_id()
-                if current_req_id == -1:
-                    print("Failed to get next request ID. Will retry connection/setup.")
-                    app.connection_lost = True
-                    tasks_to_process.insert(0, date_to_fetch_end) # Put task back
-                    break # Break from this inner while to re-check connection
+                            end_date_obj = task['end_date_obj_for_req']
+                            naive_dt_local = datetime.datetime.combine(end_date_obj, datetime.time(23, 59, 59))
+                            localized_dt_for_api = app_instance.expected_timezone.localize(naive_dt_local)
+                            dt_utc_for_api_str = localized_dt_for_api.astimezone(pytz.utc).strftime("%Y%m%d %H:%M:%S UTC")
+                            
+                            what_to_show_for_this_part = part_name.upper() if IS_BID_ASK_MODE else WHAT_TO_SHOW_CONFIG
+                            request_historical_data_for_part(app_instance, contract, dt_utc_for_api_str, new_req_id, USE_RTH_CONFIG, what_to_show_for_this_part)
+                            active_req_count += 1
+                            time.sleep(INTER_REQUEST_DELAY) 
+                        if active_req_count >= MAX_ACTIVE_REQUESTS or app_instance.connection_lost: break
+                    if active_req_count >= MAX_ACTIVE_REQUESTS or app_instance.connection_lost: break
+            if app_instance.connection_lost: continue
 
-                naive_dt_local_new = datetime.datetime.combine(date_to_fetch_end, datetime.time(23, 59, 59))
-                localized_dt_local_new = app.expected_timezone.localize(naive_dt_local_new)
-                dt_utc_new = localized_dt_local_new.astimezone(pytz.utc)
-                # Using space and " UTC" for clarity with API
-                end_date_str_req_for_api_utc = dt_utc_new.strftime("%Y%m%d %H:%M:%S UTC")
-
-                print(f"Preparing new request for target end date: {date_to_fetch_end.strftime('%Y-%m-%d')} (API str: {end_date_str_req_for_api_utc}), ReqId: {current_req_id}")
-                bar_collection[current_req_id] = {
-                    'data': [], 'status': "incomplete",
-                    'end_date_obj_for_req': date_to_fetch_end,
-                    'retry_count': 0, 'last_error_code': None
-                }
-                # MODIFIED: Pass USE_RTH_CONFIG and WHAT_TO_SHOW_CONFIG
-                request_historical_data(app, contract, end_date_str_req_for_api_utc, current_req_id, USE_RTH_CONFIG, WHAT_TO_SHOW_CONFIG)
-                active_requests_count += 1
-                time.sleep(INTER_REQUEST_DELAY)
-
-            all_tasks_initiated = not tasks_to_process
-            all_requests_settled = True
-            pending_requests_exist = False
-            if not bar_collection and all_tasks_initiated: break # No requests made and no tasks left
-            for req_status_info in bar_collection.values():
-                status = req_status_info.get('status')
-                if status == "incomplete" or status == "error_retry":
-                    all_requests_settled = False; pending_requests_exist = True; break
-            if all_tasks_initiated and all_requests_settled: break
-            if not pending_requests_exist and not tasks_to_process: break # No pending and no new tasks
-            time.sleep(1)
+            # 4. Check for overall completion
+            all_tasks_done = True
+            if not task_data_collection: # Should ideally not happen if initialized
+                print("Warning: task_data_collection is empty, assuming completion but this is unexpected.")
+            else:
+                for task_key, task in task_data_collection.items():
+                    if task['overall_status'] not in ["complete_final", "failed_permanent"]:
+                        all_tasks_done = False
+                        break
+            
+            if all_tasks_done:
+                print("All tasks processed or no tasks to process.")
+                break
+            
+            time.sleep(1) # Main loop delay
 
     except KeyboardInterrupt:
-        print("KeyboardInterrupt received. Shutting down...")
+        print("KeyboardInterrupt. Shutting down...")
+    except Exception as e_main: # Catch any other unexpected errors in main loop
+        print(f"Unexpected error in main loop: {e_main}")
+        traceback.print_exc()
     finally:
-        if bar_collection:
-            completed_count = sum(1 for r_info in bar_collection.values() if r_info.get('status') == "complete")
-            failed_count = sum(1 for r_info in bar_collection.values() if r_info.get('status') == "failed_permanent")
-            in_progress_count = sum(1 for r_info in bar_collection.values() if r_info.get('status') in ["incomplete", "error_retry"])
-            print(f"\nProcessing summary. Total requests initiated: {len(bar_collection)}.")
-            print(f"  Successfully completed and written: {completed_count}")
-            print(f"  Permanently failed: {failed_count}")
-            print(f"  Still in progress/pending retry at exit: {in_progress_count}")
-            if failed_count > 0 or in_progress_count > 0:
-                print("  Details for non-completed requests (target end dates):")
-                for r_id, info in bar_collection.items():
-                    if info.get('status') != 'complete':
-                        err_code = info.get('last_error_code', 'N/A')
-                        print(f"    ReqId: {r_id}, Status: {info.get('status')}, Target EndDate: {info['end_date_obj_for_req'].strftime('%Y-%m-%d')}, Error: {err_code}")
-        else: print("\nNo data requests were processed.")
+        # Summary of task statuses
+        if task_data_collection:
+            completed_final = sum(1 for t in task_data_collection.values() if t['overall_status'] == "complete_final")
+            failed_permanent = sum(1 for t in task_data_collection.values() if t['overall_status'] == "failed_permanent")
+            error_writing = sum(1 for t in task_data_collection.values() if t['overall_status'] == "error_writing_csv")
+            other_statuses = len(task_data_collection) - completed_final - failed_permanent - error_writing
+            
+            print(f"\n--- Processing Summary ---")
+            print(f"Total Tasks Initiated: {len(task_data_collection)}")
+            print(f"  Completed & Written: {completed_final}")
+            print(f"  Permanently Failed (data request/contract): {failed_permanent}")
+            print(f"  Failed (CSV write error): {error_writing}")
+            print(f"  Other Statuses (e.g. pending, error_retry, incomplete): {other_statuses}")
 
-        print(f"\nFinal data available in {filename}")
-        if app.isConnected(): print("Disconnecting from IBKR..."); app.disconnect()
-        if api_thread and api_thread.is_alive():
-            print("Waiting for API thread to terminate...")
-            api_thread.join(timeout=10)
-            if api_thread.is_alive(): print("Warning: API thread did not terminate gracefully.")
-        print("Script finished.")
+            if other_statuses > 0 or failed_permanent > 0 or error_writing > 0:
+                 print("\n  Details for non-completed/failed tasks:")
+                 for tk, tv in sorted(task_data_collection.items()): # Sort for consistent output
+                     if tv['overall_status'] not in ["complete_final"]:
+                         print(f"    Task for week ending {tk.strftime('%Y-%m-%d')}: Overall Status: {tv['overall_status']}")
+                         for pn, pd_part_details in tv['parts'].items():
+                             retry_info = f", Retries: {pd_part_details.get('retry_count',0)}/{MAX_PART_RETRIES}" if 'retry_count' in pd_part_details else ""
+                             error_info = f", LastError: {pd_part_details.get('last_error_code','N/A')}" if pd_part_details.get('last_error_code') else ""
+                             print(f"      Part '{pn}': Status: {pd_part_details['status']}{error_info}{retry_info}")
+            print(f"--- End Summary ---")
+
+        if app_instance and app_instance.isConnected(): 
+            print("Disconnecting from IBKR...")
+            app_instance.disconnect()
+        if api_thread and api_thread.is_alive(): 
+            print("Waiting for API thread to shut down...")
+            api_thread.join(timeout=10) # Increased timeout for join
+            if api_thread.is_alive():
+                print("Warning: API thread did not shut down cleanly.")
+        
+        print(f"Script finished. Check data in {FILENAME_FOR_OUTPUT}")
 
 if __name__ == "__main__":
     main()
